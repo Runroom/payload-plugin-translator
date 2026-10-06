@@ -4,11 +4,11 @@ import type { Target } from './target.js'
 
 export type LocaleLink = { href: string; newTab: boolean }
 
-// En la página del documento basta con cambiar `?locale=` de la URL actual. En un drawer
-// de relación (`editDepth > 1`) la URL actual es la del documento padre: se construye la
-// del propio documento como hace Payload (`formatAdminURL` + `/collections/…` o
-// `/globals/…`) y se abre en otra pestaña, porque navegar aquí cerraría el padre con lo que
-// tenga sin guardar.
+// On the document page changing `?locale=` in the current URL is enough. In a relationship
+// drawer (`editDepth > 1`) the current URL is the parent document's: the document's own URL
+// is built as Payload does (`formatAdminURL` + `/collections/…` or `/globals/…`) and opened
+// in another tab, because navigating here would close the parent with whatever it has
+// unsaved.
 export const localeLinkOf =
   ({
     editDepth,

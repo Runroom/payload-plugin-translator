@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { MarkError, marksMatch } from '../src/core/lexical.js'
+import { MarkError } from '../src/core/lexical.js'
+import { marksMatch } from '../src/core/marks.js'
 import { fakeProvider } from '../src/provider/fake.js'
 import { translateUnits } from '../src/provider/translateUnits.js'
 import type { TranslationProvider } from '../src/provider/types.js'
@@ -211,7 +212,7 @@ describe('translateUnits', () => {
   })
 })
 
-// El modelo quita el `<2>` literal del texto plano y respeta la marca del richText.
+// The model drops the literal `<2>` from the plain text and keeps the richText mark.
 const strippingLiteralMarks = (units: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
     Object.entries(units).map(([key, value]) => [

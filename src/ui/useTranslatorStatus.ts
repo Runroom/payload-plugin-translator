@@ -7,7 +7,7 @@ import type { Target } from './target.js'
 
 const POLL_MS = 2_000
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
-// Fallos seguidos del sondeo tras los que se deja de preguntar y se ofrece reintentar.
+// Consecutive poll failures after which polling stops and a retry is offered.
 const MAX_FAILED_POLLS = 5
 
 class StatusError extends Error {
@@ -47,9 +47,9 @@ const wait = (ms: number, signal: AbortSignal): Promise<void> =>
     )
   })
 
-// 403/404 son la respuesta de acceso (colaboradores, colección sin traductor) y ocultan
-// el control sin reintentar; cualquier otro fallo se reintenta con backoff y, agotados
-// los intentos, el control queda oculto hasta recargar.
+// 403/404 are the access answer (a user without access, a collection without the
+// translator) and hide the control without retrying; any other failure is retried with
+// backoff and, once the attempts run out, the control stays hidden until a reload.
 const loadInitialStatus = async (
   url: string,
   signal: AbortSignal,
@@ -72,9 +72,9 @@ const markQueued = (status: StatusResponse, locales: string[]): StatusResponse =
   ),
 })
 
-// `seen` son los idiomas vistos en cola o traduciéndose en esta visita, los lance quien
-// los lance: al terminar son los que pasan a «lista» y los que piden recargar su
-// formulario.
+// `seen` are the locales seen queued or translating during this visit, whoever started
+// them: when they finish they are the ones that become "ready" and ask to reload their
+// form.
 const useStatusState = (): {
   status: StatusResponse | null
   seen: string[]
@@ -108,9 +108,9 @@ const useStatusState = (): {
   return { status, seen, apply, queueLocales }
 }
 
-// Cada petición lleva un número al lanzarse y solo se aplica si es posterior a la última
-// aplicada: un `refresh()` lento no puede devolver «Traduciendo…» encima de un sondeo más
-// nuevo que ya dijo «lista».
+// Each request gets a number when it is sent and is only applied if it is later than the
+// last one applied: a slow `refresh()` cannot bring back "Translating…" over a newer poll
+// that already said "ready".
 const useSequence = (): (() => () => boolean) => {
   const issued = useRef(0)
   const applied = useRef(0)
@@ -127,7 +127,7 @@ const useSequence = (): (() => () => boolean) => {
 
 const increment = (count: number): number => count + 1
 
-// Un 403/404 es un estado más (`null`: sin acceso); el resto de fallos, pasajeros.
+// A 403/404 is one more state (`null`: no access); any other failure is transient.
 const pollStatus = async (
   url: string,
   signal: AbortSignal,
@@ -140,10 +140,10 @@ const pollStatus = async (
   }
 }
 
-// Un fallo pasajero del sondeo conserva el último estado; `failedPolls` vuelve a disparar
-// el efecto aunque `status` no haya cambiado. 403/404 son la respuesta de acceso (sesión
-// caducada, permiso retirado): ocultan el control como en la carga inicial, y eso para el
-// sondeo. Tras `MAX_FAILED_POLLS` fallos seguidos se para y se ofrece reintentar.
+// A transient poll failure keeps the last status; `failedPolls` fires the effect again
+// even though `status` did not change. 403/404 are the access answer (expired session,
+// permission revoked): they hide the control as in the initial load, and that stops the
+// polling. After `MAX_FAILED_POLLS` consecutive failures it stops and offers a retry.
 const usePolling = ({
   url,
   status,
@@ -203,8 +203,8 @@ export const useTranslatorStatus = ({
 
   const queuedAt = useRef(0)
 
-  // Si falla, el sondeo de los locales en cola sigue y trae el estado real. Una respuesta
-  // pedida antes del último `markQueued` es anterior a los registros en cola y se descarta.
+  // If it fails, polling the queued locales goes on and brings the real status. A response
+  // requested before the last `markQueued` predates the queued records and is discarded.
   const refresh = useCallback(async (): Promise<void> => {
     if (!url) return
     const requestedAt = queuedAt.current
@@ -215,9 +215,9 @@ export const useTranslatorStatus = ({
     } catch {}
   }, [url, apply, next])
 
-  // El servidor ya ha creado los registros en cola al responder 202, pero el status
-  // previo aún dice `none`/`done`: sin este paso el control anunciaría un «listo» falso
-  // y el sondeo no arrancaría.
+  // The server has already created the queued records when it answers 202, but the
+  // previous status still says `none`/`done`: without this step the control would announce
+  // a false "ready" and polling would not start.
   const queue = useCallback(
     (locales: string[]): void => {
       queuedAt.current += 1
@@ -226,8 +226,8 @@ export const useTranslatorStatus = ({
     [queueLocales],
   )
 
-  // Abortada (cambió la URL o se desmontó), la carga devuelve `null`: aplicarlo ocultaría
-  // el control hasta que llegue la de la URL nueva.
+  // When aborted (the URL changed or the component unmounted), the load returns `null`:
+  // applying it would hide the control until the new URL's load arrives.
   useEffect(() => {
     if (!url) return
     const controller = new AbortController()

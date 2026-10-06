@@ -11,7 +11,7 @@ export type RecordKey = EntityRef & { targetLocale: string }
 export type TranslationRecord = {
   id: string
   status: 'queued' | 'running' | 'done' | 'failed'
-  // Idioma desde el que se tradujo la última vez; las huellas de `fields` son de ese texto.
+  // Locale it was last translated from; the `fields` fingerprints are of that text.
   sourceLocale?: string | null
   fields: FieldHashes | null
   kept: string[] | null
@@ -21,8 +21,8 @@ export type TranslationRecord = {
   updatedAt: string
 }
 
-// Solo escribe el plugin, por la Local API, que no pasa por `access`: por REST nadie puede
-// crear, tocar ni borrar un registro (sería saltarse el bloqueo o falsear las huellas).
+// Only the plugin writes, through the Local API, which skips `access`: over REST nobody can
+// create, change or delete a record (that would bypass the lock or forge the fingerprints).
 const DENY = (): boolean => false
 
 export const recordsCollection = (access: TranslatorAccess): CollectionConfig => {
@@ -33,14 +33,17 @@ export const recordsCollection = (access: TranslatorAccess): CollectionConfig =>
   }): Promise<boolean> => Promise.resolve(access({ req, operation: 'status' }))
   return {
     slug: RECORDS_SLUG,
-    labels: { singular: 'Registro de traducción', plural: 'Registros de traducción' },
+    labels: {
+      singular: { en: 'Translation record', es: 'Registro de traducción' },
+      plural: { en: 'Translation records', es: 'Registros de traducción' },
+    },
     admin: { hidden: true },
     access: { read: allowed, create: DENY, update: DENY, delete: DENY },
     indexes: [
       { fields: ['entityType', 'collectionSlug', 'docId', 'targetLocale'], unique: true },
     ],
     fields: [
-      // Con un global, `collectionSlug` guarda el slug del global y `docId` es fijo.
+      // For a global, `collectionSlug` holds the global's slug and `docId` is fixed.
       {
         name: 'entityType',
         type: 'select',
@@ -63,7 +66,7 @@ export const recordsCollection = (access: TranslatorAccess): CollectionConfig =>
       { name: 'kept', type: 'json' },
       { name: 'error', type: 'textarea' },
       { name: 'translatedAt', type: 'date' },
-      // Cuándo se avisó a la web de una traducción escrita sin borradores (`onLiveWrite`).
+      // When the website was told about a translation written without drafts (`onLiveWrite`).
       { name: 'revalidatedAt', type: 'date' },
     ],
   }
@@ -147,8 +150,8 @@ export const saveRecord = async (
       data: { ...key, ...data } as never,
     })
   } catch (error) {
-    // El índice único rechaza el create si otro proceso se adelantó entre la
-    // búsqueda y la escritura; en ese caso basta con actualizar el suyo.
+    // The unique index rejects the create if another process got in between the lookup
+    // and the write; in that case updating its record is enough.
     const winner = await findRecord(payload, key)
     if (!winner) throw error
     await updateRecord(payload, winner.id, data)

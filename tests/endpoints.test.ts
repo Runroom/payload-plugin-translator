@@ -7,7 +7,8 @@ import { fakeProvider } from '../src/provider/fake.js'
 import { translatorEndpoints } from '../src/server/endpoints.js'
 import type { TranslatorSettings } from '../src/server/settings.js'
 
-// Payload resuelve los permisos por documento leyendo de la BD; aquí se fijan por test.
+// Payload resolves per-document permissions by reading the database; here each test sets
+// them.
 vi.mock('payload', async importOriginal => ({
   ...(await importOriginal<Record<string, unknown>>()),
   docAccessOperation: vi.fn(async () => ({ fields: {}, read: true, update: true })),
@@ -595,7 +596,7 @@ describe('GET /translator/status', () => {
       stale: false,
       changed: 0,
     })
-    // El origen se lee con fallback, como hace el job al traducir.
+    // The source is read with fallback, as the job does when translating.
     expect(
       upToDate.findByID.mock.calls.some(
         ([args]) => args.locale === 'ca' && args.fallbackLocale !== false,
@@ -1023,7 +1024,7 @@ describe('GET /translator/status with an expired run', () => {
       expect(body.locales[1]).toMatchObject({
         locale: 'ca',
         state: 'failed',
-        error: expect.stringContaining('interrumpió'),
+        error: expect.stringContaining('interrupted'),
       })
       expect(update).not.toHaveBeenCalled()
       expect(create).not.toHaveBeenCalled()

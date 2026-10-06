@@ -1,11 +1,11 @@
 import type { Config, Plugin } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
 
-import { translatorPlugin } from '../src/index.js'
+import { translatorPlugin, translatorTranslations } from '../src/index.js'
 import { fakeProvider } from '../src/provider/fake.js'
 
-// Los permisos por documento los resuelve Payload contra la BD; aquí solo importa la
-// config que el plugin devuelve.
+// Payload resolves per-document permissions against the database; here only the config
+// the plugin returns matters.
 vi.mock('../src/server/docAccess.js', () => ({
   docPermissions: vi.fn().mockResolvedValue({ read: true, update: true }),
 }))
@@ -187,8 +187,8 @@ describe('translatorPlugin', () => {
   })
 })
 
-// El status lista los idiomas de la entidad en el orden de la config: es la forma de ver
-// qué `locales` resolvió el plugin.
+// The status lists the entity's locales in config order: it is the way to see which
+// `locales` the plugin resolved.
 const statusLocales = async (options: { locales?: string[] }): Promise<string[]> => {
   const config = await translatorPlugin({
     collections: { events: options },
@@ -305,6 +305,28 @@ describe('translatorPlugin admin texts', () => {
     expect(es.translator?.translate).toBe('Traducir con IA')
     expect(es.translator?.submit).toBe('Traducir')
     expect(es.general?.foo).toBe('bar')
+  })
+
+  it('falls back to English for an admin language the plugin has no catalog for', async () => {
+    const base = baseConfig()
+    const config = await plugin({
+      ...base,
+      i18n: {
+        supportedLanguages: { de: {}, en: {} },
+        translations: { ca: { translator: { translate: 'Tradueix' } } },
+      },
+    } as unknown as Config)
+    const translations = config.i18n?.translations as Record<
+      string,
+      Record<string, Record<string, string>>
+    >
+
+    expect(translations.de?.translator?.translate).toBe(
+      translatorTranslations.en.translator.translate,
+    )
+    expect(translations.ca?.translator?.translate).toBe('Tradueix')
+    expect(translations.ca?.translator?.submit).toBe('Translate')
+    expect(translations.es?.translator?.submit).toBe('Traducir')
   })
 })
 

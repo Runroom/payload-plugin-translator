@@ -184,8 +184,8 @@ export const collectTranslatables = ({
 
 const CONTAINER_TYPES = new Set(['array', 'blocks', 'group'])
 
-// Un bloque puede referenciarse a sí mismo por `blockReferences`; cada uno se recorre una
-// sola vez o la búsqueda no termina.
+// A block can reference itself through `blockReferences`; each one is walked only once or
+// the search never ends.
 const childFieldsOf = (
   field: Field,
   configBlocks: Block[],
@@ -215,8 +215,8 @@ const ownContainerName = (field: Field): string[] => {
     : []
 }
 
-// Un contenedor localizado guarda filas distintas por idioma: no hay una fila del origen
-// que corresponda a una del destino, así que la huella por `id` no aplica.
+// A localized container stores different rows per locale: no source row corresponds to a
+// target row, so fingerprinting by row `id` does not apply.
 export const findLocalizedContainers = (
   fields: Field[],
   blocks: Block[] = [],

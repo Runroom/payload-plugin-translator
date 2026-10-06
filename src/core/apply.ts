@@ -16,14 +16,14 @@ const stepInto = (cursor: Row, segment: PathSegment): Row => {
       cursor[segment.key] = created
       return created
     }
-    throw new Error(`El campo ${segment.key} no es un objeto en el destino`)
+    throw new Error(`Field ${segment.key} is not an object in the target`)
   }
   if (!Array.isArray(next)) {
-    throw new Error(`El campo ${segment.key} no es un array en el destino`)
+    throw new Error(`Field ${segment.key} is not an array in the target`)
   }
   const row = next.find(item => isRow(item) && String(item.id) === segment.rowId)
   if (!isRow(row)) {
-    throw new Error(`La fila ${segment.key}.${segment.rowId} ya no existe en el destino`)
+    throw new Error(`Row ${segment.key}.${segment.rowId} no longer exists in the target`)
   }
   return row
 }

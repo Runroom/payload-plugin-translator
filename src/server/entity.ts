@@ -5,8 +5,8 @@ import type { EntityLocales, TranslatorSettings } from './settings.js'
 
 type EntityType = 'collection' | 'global'
 
-// Un global no tiene documentos: sus registros y su job llevan este id fijo para que la
-// clave sea la misma que la de un documento de colección.
+// A global has no documents: its records and its job carry this fixed id so the key has
+// the same shape as a collection document's.
 export const GLOBAL_DOC_ID = 'global'
 
 export type EntityRef = { entityType: EntityType; collectionSlug: string; docId: string }
@@ -20,16 +20,16 @@ export type Entity = {
   writesLive: boolean
   read: (args: ReadArgs) => Promise<Doc>
   find: (args: { locale: string }) => Promise<Doc | null>
-  // Devuelve el documento tal como quedó guardado: un hook `beforeChange` puede
-  // reescribir lo que se mandó (un `formatSlug`), y las huellas tienen que ser de eso.
+  // Returns the document as it was saved: a `beforeChange` hook can rewrite what was sent
+  // (a `formatSlug`), and the fingerprints have to be of that.
   write: (args: { locale: string; data: Doc }) => Promise<Doc>
-  // Fecha de la última versión publicada; `null` sin borradores o si nunca se publicó.
+  // Date of the latest published version; `null` without drafts or if never published.
   lastPublishedAt: () => Promise<string | null>
 }
 
-// Un id que el adaptador no puede ni interpretar (no UUID en Postgres, no ObjectID en
-// Mongo) no es un error del servidor: el documento no existe. SQLite guarda el id como
-// texto y ya responde «no encontrado» por sí mismo.
+// An id the adapter cannot even parse (not a UUID in Postgres, not an ObjectID in Mongo)
+// is not a server error: the document does not exist. SQLite stores the id as text and
+// already answers "not found" by itself.
 const INVALID_ID_CODES = new Set(['22P02'])
 
 const isInvalidId = (error: unknown): boolean => {
@@ -49,9 +49,9 @@ const hasDrafts = (config: EntityConfig): boolean => {
   return typeof versions === 'object' && Boolean(versions.drafts)
 }
 
-// Sin borradores no hay dónde dejar la traducción pendiente de revisar: `draft: true`
-// publicaría igual. Se omite para que la llamada diga lo que hace, y `/status` lo expone
-// como `writesLive` para que el drawer avise antes de traducir.
+// Without drafts there is nowhere to leave the translation pending review: `draft: true`
+// would publish anyway. It is left out so the call says what it does, and `/status`
+// exposes it as `writesLive` so the drawer warns before translating.
 const draftOption = (drafts: boolean): { draft?: true } => (drafts ? { draft: true } : {})
 
 const PUBLISHED = { 'version._status': { equals: 'published' } }
@@ -166,15 +166,15 @@ const globalEntity = (
   }
 }
 
-// El plugin ya exige `localization` al arrancar; aquí solo se cumple el tipo.
+// The plugin already requires `localization` at startup; this only satisfies the type.
 export const defaultLocaleOf = (payload: Payload): string => {
   const localization = payload.config.localization
   if (!localization)
-    throw new Error('translatorPlugin necesita `localization` en la config')
+    throw new Error('translatorPlugin requires `localization` in the config')
   return localization.defaultLocale
 }
 
-// `null` cuando la colección o el global no están registrados en Payload.
+// `null` when the collection or the global is not registered in Payload.
 export const entityOf = (payload: Payload, ref: EntityRef): Entity | null =>
   ref.entityType === 'global'
     ? globalEntity(payload, ref)

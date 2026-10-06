@@ -11,13 +11,13 @@ import { failedMessage } from './messages.js'
 import { reloadPage } from './reloadPage.js'
 import { isInFlight } from './useTranslatorStatus.js'
 
-// Vive en la barra de controles, donde una segunda línea recorta los metadatos de Payload:
-// el texto visible es corto y la frase completa va al lector de pantalla (y al drawer, en
-// el caso de la traducción en curso).
+// It lives in the controls bar, where a second line clips Payload's metadata: the visible
+// text is short and the full sentence goes to the screen reader (and to the drawer, for the
+// translation in progress).
 //
-// Sigue el estado del idioma abierto, no el del lote: «lista» aparece en cuanto su
-// traducción termina aunque otro idioma siga en curso. `sourceLocale` es el idioma desde
-// el que se tradujo este, que es contra el que está desactualizado.
+// It follows the state of the open locale, not the batch's: "ready" shows as soon as its
+// translation finishes even if another locale is still in progress. `sourceLocale` is the
+// locale this one was translated from, which is what it is out of date against.
 type Props = {
   item: LocaleStatus
   seen: string[]
@@ -25,14 +25,14 @@ type Props = {
   sourceLocale: string
   sourceLabel: string
   linkOf: (locale: string) => LocaleLink | null
-  // `false` en un drawer anidado: recargar la página recargaría el documento padre.
+  // `false` in a nested drawer: reloading the page would reload the parent document.
   canReload: boolean
   t: Translate
 }
 
-// Recargar es la única forma de que el formulario abierto tenga el texto traducido; si se
-// guarda sin hacerlo, el formulario viejo pisa la traducción. Por eso es un aviso y no un
-// éxito.
+// Reloading is the only way for the open form to get the translated text; saving without
+// it makes the old form overwrite the translation. That is why it is a warning and not a
+// success.
 const ReadyNotice = ({ canReload, t }: Pick<Props, 'canReload' | 't'>): ReactElement => (
   <Notice
     tone="warning"
@@ -98,8 +98,8 @@ const StaleNotice = ({
   )
 }
 
-// Un fallo del idioma abierto se avisa siempre, se viera o no en esta visita: también el
-// de una traducción interrumpida, que solo se descubre al volver.
+// A failure of the open locale is always reported, whether or not it was seen during this
+// visit: also that of an interrupted translation, which is only discovered on coming back.
 export const TargetNotice = ({
   item,
   seen,

@@ -1,4 +1,5 @@
-import { MarkError, marksMatch } from '../core/lexical.js'
+import { MarkError } from '../core/lexical.js'
+import { marksMatch } from '../core/marks.js'
 import type { TranslationProvider } from './types.js'
 
 const MAX_UNITS = 40
@@ -10,8 +11,8 @@ type Args = {
   sourceLocale: string
   targetLocale: string
   instructions: string
-  // Qué unidades llevan marcas (las de `richText`); un `<2>` literal en un campo `text`
-  // no es formato y no puede hacer fallar la comprobación. Por defecto, todas.
+  // Which units carry marks (the `richText` ones); a literal `<2>` in a `text` field is not
+  // formatting and must not fail the check. All of them by default.
   withMarks?: (id: string) => boolean
   onBatch?: () => Promise<void>
 }
@@ -83,7 +84,7 @@ export const translateUnits = async (args: Args): Promise<Map<string, string>> =
   const stillBroken = brokenIn(args, new Map(broken), result)
   if (stillBroken.length > 0) {
     throw new MarkError(
-      `La traducción rompió el formato de: ${stillBroken.map(([id]) => id).join(', ')}`,
+      `The translation broke the formatting of: ${stillBroken.map(([id]) => id).join(', ')}`,
     )
   }
   return result

@@ -7,10 +7,10 @@ export type DocPermissions = { read: boolean; update: boolean }
 
 const NONE: DocPermissions = { read: false, update: false }
 
-// Pasar `access` del plugin da derecho a usar el traductor, no a tocar cualquier
-// documento: lo que decide por documento es el `access` de su colección o global, con el
-// usuario de la petición, igual que hace el admin. `docAccessOperation` lee el documento
-// y resuelve también los `access` que devuelven un `where`.
+// Passing the plugin's `access` grants the right to use the translator, not to touch any
+// document: what decides per document is the `access` of its collection or global, with
+// the request's user, just as the admin does. `docAccessOperation` reads the document and
+// also resolves the `access` functions that return a `where`.
 export const docPermissions = async ({
   req,
   ref,

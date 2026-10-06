@@ -4,7 +4,7 @@ export type Translate = (key: never, vars?: Record<string, unknown>) => string
 
 export type Message = { key: string; vars?: Record<string, unknown> }
 
-// Sin motivo, la frase con `{{error}}` quedaría colgando de los dos puntos.
+// Without a reason, the sentence with `{{error}}` would be left hanging on the colon.
 export const failedMessage = (error: string | null): Message =>
   error
     ? { key: 'translator:failed', vars: { error } }

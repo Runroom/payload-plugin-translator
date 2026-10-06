@@ -36,8 +36,9 @@ const STATES: Record<RowState, { key: string; tone: Tone }> = {
 const isFreshlyDone = (state: RowState): boolean =>
   state === 'draftReady' || state === 'published'
 
-// Recién traducida en esta visita es la que merece «Revisar», y la pill dice dónde quedó:
-// en borrador, pendiente de publicar, o ya publicada si la entidad no tiene borradores.
+// A locale freshly translated during this visit is the one that deserves "Review", and the
+// pill says where it ended up: as a draft, pending publication, or already published if the
+// entity has no drafts.
 const rowState = ({
   item,
   translated,
@@ -59,7 +60,7 @@ export const isUpToDate = (item: LocaleStatus): boolean =>
 type RowProps = {
   item: LocaleStatus
   label: string
-  // Nombre del idioma desde el que se tradujo este, que es contra el que se mide su estado.
+  // Name of the locale this one was translated from, which its state is measured against.
   sourceLabel: string
   state: RowState
   selected: boolean
@@ -113,10 +114,10 @@ const StatePill = ({
   </span>
 )
 
-// Las acciones esperan al final del lote: mientras quede un idioma en curso, «Revisar»
-// llevaría a un texto que el job aún puede reescribir y «Reintentar» daría 409. Siguen
-// montadas pero inertes (`aria-disabled`, como el envío): desmontarlas tiraría el foco de
-// quien acaba de pulsar «Reintentar» al `<dialog>`.
+// The actions wait for the end of the batch: while a locale is still in progress, "Review"
+// would lead to a text the job can still rewrite and "Retry" would get a 409. They stay
+// mounted but inert (`aria-disabled`, like the submit button): unmounting them would drop
+// the focus of whoever just pressed "Retry" onto the `<dialog>`.
 const inertProps = (busy: boolean): Record<string, string | undefined> => ({
   'aria-disabled': busy ? 'true' : undefined,
 })
@@ -140,7 +141,7 @@ const ReviewAction = ({
       margin={false}
       className={busy ? 'btn--disabled' : undefined}
       extraButtonProps={inertProps(busy)}
-      // Con `onClick`, el `Button` de Payload cancela la navegación del enlace.
+      // With `onClick`, Payload's `Button` cancels the link navigation.
       onClick={busy ? (): void => {} : undefined}
     >
       {t('translator:review' as never)}{' '}
@@ -175,9 +176,9 @@ const rowActions = (props: RowProps): ReactElement | null => {
   return null
 }
 
-// Cuando el idioma reintentado pasa a «En cola», su botón desaparece con el foco dentro;
-// se le devuelve a la casilla de la misma fila. Se mira al desmontar, cuando el botón aún
-// está en el documento, y se mueve después solo si nadie más lo ha recogido.
+// When the retried locale becomes "Queued", its button disappears with the focus inside;
+// the focus is returned to the checkbox of the same row. It is checked on unmount, while the
+// button is still in the document, and moved afterwards only if nothing else picked it up.
 const RowActions = ({
   fallbackFocus,
   children,
@@ -309,7 +310,7 @@ export const LocaleStates = ({
           />
         ))}
       </ul>
-      {/* Montado siempre y vacío: así el lector de pantalla anuncia el error al aparecer. */}
+      {/* Always mounted and empty: that way the screen reader announces the error when it appears. */}
       <p id={errorId} role="alert" className="rr-translator__field-error">
         {error}
       </p>

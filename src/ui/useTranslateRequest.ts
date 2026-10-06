@@ -22,8 +22,8 @@ const errorCodeOf = async (response: Response): Promise<unknown> => {
   }
 }
 
-// Un 500 `records-failed` no es un fallo al lanzar: el job ya está encolado, pero sin
-// registros el estado no puede seguirlo. El resto de 5xx y los fallos de red sí lo son.
+// A 500 `records-failed` is not a failure to start: the job is already queued, but without
+// records the status cannot follow it. Other 5xx responses and network failures are.
 const refusalOf = async (response: Response): Promise<Message | null> => {
   if (response.ok) return null
   const key = REFUSALS[response.status]
@@ -59,8 +59,9 @@ export type SendTranslation = (request: {
   options: TranslateOptionValues
 }) => Promise<void>
 
-// `onLaunched` y `onRefused` dicen al resumen qué lote seguir; `translated` acumula los
-// idiomas lanzados en esta visita, que pasan a «lista» al terminar.
+// `onLaunched` and `onRefused` tell the summary which batch to follow; `translated`
+// accumulates the locales started during this visit, which become "ready" when they
+// finish.
 export const useTranslateRequest = ({
   apiBase,
   target,

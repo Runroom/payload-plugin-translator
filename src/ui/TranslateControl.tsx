@@ -46,12 +46,12 @@ const localeLabel = ({
   return found.label[language] ?? Object.values(found.label)[0] ?? code
 }
 
-// Sin borradores no queda nada por revisar antes de publicar: ya está publicado.
+// Without drafts there is nothing left to review before publishing: it is already live.
 const doneKeyOf = (status: { writesLive: boolean }): string =>
   status.writesLive ? 'translator:doneLive' : 'translator:done'
 
-// La misma regla con la que la barra de Payload dice «Borrador» o «Cambiado»
-// (`elements/Status`). Publicar pone el contador a 0 en `useDocumentInfo` sin recargar.
+// The same rule Payload's bar uses to say "Draft" or "Changed" (`elements/Status`).
+// Publishing sets the counter to 0 in `useDocumentInfo` without reloading.
 const hasUnpublishedChanges = ({
   hasPublishedDoc,
   unpublishedVersionCount,
@@ -60,9 +60,9 @@ const hasUnpublishedChanges = ({
   unpublishedVersionCount: number
 }): boolean => !hasPublishedDoc || unpublishedVersionCount > 0
 
-// El contador de Payload es del documento entero: con un idioma ya publicado y otro en
-// borrador, también sería positivo en el publicado. Solo una traducción posterior a la
-// última publicación sigue sin publicar.
+// Payload's counter is for the whole document: with one locale already published and
+// another one in draft, it would be positive on the published one too. Only a translation
+// newer than the latest publication is still unpublished.
 const translatedAfterPublishing = ({
   translatedAt,
   lastPublishedAt,
@@ -142,9 +142,9 @@ export const TranslateControl = (): ReactElement | null => {
   })
 
   if (!status?.enabled) return null
-  // El idioma abierto es el origen; los demás, los destinos del drawer. Su propio registro
-  // (si alguien lo tradujo desde otro idioma) alimenta el aviso de la barra. Un idioma que
-  // la entidad no traduce no puede ser origen: el servidor respondería 400.
+  // The open locale is the source; the others, the drawer's targets. Its own record (if
+  // someone translated it from another locale) feeds the bar's notice. A locale the entity
+  // does not translate cannot be the source: the server would answer 400.
   const current = status.locales.find(item => item.locale === locale.code)
   if (!current) return null
 
@@ -154,7 +154,7 @@ export const TranslateControl = (): ReactElement | null => {
       code,
       language: i18n.language,
     })
-  // Un registro terminado sin origen no debería existir; por si acaso, el idioma por defecto.
+  // A record without `sourceLocale` is measured against the default locale.
   const sourceOf = (item: LocaleStatus): string =>
     item.sourceLocale ??
     (config.localization ? config.localization.defaultLocale : locale.code)
@@ -170,7 +170,7 @@ export const TranslateControl = (): ReactElement | null => {
     notice: request.notice,
     doneKey: batch.own ? doneKeyOf(status) : 'translator:finished',
   })
-  // Con el sondeo parado, «Traduciendo…» ya no es verdad: se anuncia que no se sabe.
+  // With polling stopped, "Translating…" is no longer true: it announces the status is unknown.
   const messages = stalled && !request.notice ? [STATUS_UNAVAILABLE] : summary
 
   return (

@@ -5,10 +5,10 @@ import {
   extractContainers,
   isLexicalState,
   MarkError,
-  marksMatch,
   replaceContainers,
   structureOf,
 } from '../src/core/lexical.js'
+import { marksMatch } from '../src/core/marks.js'
 
 const text = (value: string, format = 0): LexicalNode => ({
   type: 'text',

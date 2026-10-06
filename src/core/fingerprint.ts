@@ -13,10 +13,11 @@ export const fingerprint = (units: string[]): string | null =>
     ? null
     : createHash('sha256').update(JSON.stringify(units)).digest('hex')
 
-// La huella de un richText no sale del JSON tal cual: el editor del admin lo normaliza al
-// abrirlo (añade claves, reordena) y eso no es un cambio de contenido. Sí entra lo que la
-// traducción copia del origen sin pasar por el modelo (formato, enlaces, uploads…): si
-// cambia y la huella no, el destino quedaría «al día» con la versión vieja.
+// A richText fingerprint does not come from the raw JSON: the admin editor normalizes it
+// when opening it (adds keys, reorders) and that is not a content change. What the
+// translation copies from the source without going through the model (formatting, links,
+// uploads…) does count: if it changed and the fingerprint did not, the target would stay
+// "up to date" with the old version.
 export const fingerprintOf = (value: TranslatableValue): string | null => {
   const units = unitsOf(value)
   if (value.kind !== 'richText' || !isLexicalState(value.value)) return fingerprint(units)

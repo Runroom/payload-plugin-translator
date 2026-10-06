@@ -1,3 +1,5 @@
+import { TOKEN } from './marks.js'
+
 export type LexicalNode = {
   type: string
   text?: string
@@ -9,9 +11,9 @@ export type LexicalState = { root: LexicalNode }
 
 export class MarkError extends Error {}
 
-// `inlineBlock` va como vacío: su contenido no se traduce (se copia del origen), pero sin
-// él un párrafo `texto + bloque + texto` no contaría como contenedor y se quedaría entero
-// sin traducir.
+// `inlineBlock` counts as a void: its content is not translated (it is copied from the
+// source), but without it a `text + block + text` paragraph would not count as a container
+// and would be left entirely untranslated.
 const INLINE_TYPES = new Set([
   'text',
   'link',
@@ -21,11 +23,10 @@ const INLINE_TYPES = new Set([
   'inlineBlock',
 ])
 const VOID_TYPES = new Set(['linebreak', 'tab', 'inlineBlock'])
-const TOKEN = /<(\d+)\/>|<(\d+)>|<\/(\d+)>/g
 
-// Un `<18>` o un `</2>` literales en el texto se tomarían por marcas al parsear; van como
-// entidades y el prompt pide al modelo que las conserve. Se deshace al parsear, así que
-// un `<` suelto que devuelva el modelo sin formar marca sigue siendo texto normal.
+// A literal `<18>` or `</2>` in the text would be taken for marks when parsing; they are sent
+// as entities and the prompt asks the model to keep them. It is undone when parsing, so a
+// stray `<` the model returns without forming a mark is still plain text.
 const escapeText = (text: string): string =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
 
@@ -97,10 +98,10 @@ const idOf = (value: unknown): unknown => (isRecord(value) ? value.id : value) ?
 
 const MAX_DECODES = 10
 
-// El `beforeChange` del link de Payload pasa por `encodeURIComponent` cada url que su
-// `validateUrl` rechaza (`example.com/x`, `http://localhost:3000/x`), también si ya
-// venía codificada: cada guardado añade una capa (`%2F` → `%252F`). La huella compara la
-// url sin capas; si no, el destino recién escrito no coincidiría nunca al releerlo.
+// Payload's link `beforeChange` runs `encodeURIComponent` on every url its `validateUrl`
+// rejects (`example.com/x`, `http://localhost:3000/x`), even if it was already encoded:
+// each save adds a layer (`%2F` → `%252F`). The fingerprint compares the url without
+// layers; otherwise the freshly written target would never match when read back.
 const canonicalUrl = (url: unknown): unknown => {
   if (typeof url !== 'string') return url ?? null
   let current = url
@@ -126,8 +127,8 @@ const linkFields = (fields: Record<string, unknown>): Summary => ({
     : null,
 })
 
-// Solo claves elegidas una a una: las que Lexical añade o reescribe al abrir el documento
-// (`version`, `direction`, `indent`, `style`, `detail`, `mode`…) no pueden entrar.
+// Only keys picked one by one: the ones Lexical adds or rewrites when the document is
+// opened (`version`, `direction`, `indent`, `style`, `detail`, `mode`…) must stay out.
 const attributesOf = (node: LexicalNode): Summary => {
   const summary: Summary = { type: node.type }
   if (node.type === 'text') summary.format = node.format ?? 0
@@ -149,10 +150,10 @@ const sortKeys = (value: unknown): unknown => {
   )
 }
 
-// Los `fields` de un bloque (`block`, `inlineBlock`, `upload`) no se traducen: se copian
-// del origen, así que editarlos tiene que desactualizar el destino. Con claves ordenadas
-// para que el orden en que el admin las serialice no cuente, y sin el `id` del bloque,
-// que no es contenido.
+// A block's `fields` (`block`, `inlineBlock`, `upload`) are not translated: they are
+// copied from the source, so editing them has to make the target stale. With sorted keys so
+// the order in which the admin serializes them does not count, and without the block's
+// `id`, which is not content.
 const blockFields = (node: LexicalNode): Summary | null => {
   if (!isRecord(node.fields)) return null
   const { id: _id, ...rest } = node.fields
@@ -163,7 +164,7 @@ const summarize = (node: LexicalNode): Summary => {
   const summary = attributesOf(node)
   if (node.children?.length) return { ...summary, children: node.children.map(summarize) }
   if (node.type === 'text') return summary
-  // Un enlace vacío ya trae sus `fields` resumidos en `attributesOf`; pisan a estos.
+  // An empty link already has its `fields` summarized by `attributesOf`; those win.
   return {
     fields: blockFields(node),
     ...summary,
@@ -191,7 +192,7 @@ const appendText = (stack: Frame[], marks: LexicalNode[], raw: string): void => 
     return
   }
   const previous = top.children[top.children.length - 1]
-  if (text.trim() !== '') throw new MarkError('Texto fuera de una marca')
+  if (text.trim() !== '') throw new MarkError('Text outside a mark')
   if (previous?.type === 'text') previous.text = `${previous.text ?? ''}${text}`
   else top.pending += text
 }
@@ -200,10 +201,10 @@ const openMark = ({ stack, marks, used, index }: TokenArgs): void => {
   const template = marks[index - 1]
   const top = stack[stack.length - 1]!
   if (!template || used.has(index) || isVoidNode(template)) {
-    throw new MarkError(`Marca <${index}> inesperada`)
+    throw new MarkError(`Unexpected mark <${index}>`)
   }
   if (top.mark !== null && marks[top.mark - 1]?.type === 'text') {
-    throw new MarkError(`Marca <${index}> dentro de un texto`)
+    throw new MarkError(`Mark <${index}> inside a text`)
   }
   used.add(index)
   stack.push({ mark: index, children: [], text: '', pending: '' })
@@ -212,7 +213,7 @@ const openMark = ({ stack, marks, used, index }: TokenArgs): void => {
 const closeMark = ({ stack, marks, index }: TokenArgs): void => {
   const frame = stack.pop()
   if (!frame || frame.mark !== index || stack.length === 0) {
-    throw new MarkError(`Cierre </${index}> sin apertura`)
+    throw new MarkError(`Closing </${index}> without an opening`)
   }
   const template = marks[index - 1]!
   const parent = stack[stack.length - 1]!
@@ -229,11 +230,11 @@ const closeMark = ({ stack, marks, index }: TokenArgs): void => {
 const voidMark = ({ stack, marks, used, index }: TokenArgs): void => {
   const template = marks[index - 1]
   if (!template || used.has(index) || !isVoidNode(template)) {
-    throw new MarkError(`Marca <${index}/> inesperada`)
+    throw new MarkError(`Unexpected mark <${index}/>`)
   }
   const top = stack[stack.length - 1]!
   if (top.mark !== null && marks[top.mark - 1]?.type === 'text') {
-    throw new MarkError(`Marca <${index}/> dentro de un texto`)
+    throw new MarkError(`Mark <${index}/> inside a text`)
   }
   used.add(index)
   top.children.push({ ...template })
@@ -252,9 +253,9 @@ const sameAttributes = (a: LexicalNode, b: LexicalNode): boolean => {
   return [...keys].every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]))
 }
 
-// Lexical fusiona al guardar los textos contiguos con el mismo formato; si el modelo los
-// junta al reordenar y no se fusionan aquí, la primera edición del borrador cambia el JSON
-// y la huella lo daría por editado a mano.
+// Lexical merges adjacent texts with the same format on save; if the model puts them
+// together when reordering and they are not merged here, the first edit of the draft
+// changes the JSON and the fingerprint would take it as edited by hand.
 const mergeTexts = (nodes: LexicalNode[]): LexicalNode[] =>
   nodes.reduce<LexicalNode[]>((merged, node) => {
     const previous = merged[merged.length - 1]
@@ -284,7 +285,7 @@ const parse = (input: string, marks: LexicalNode[]): LexicalNode[] => {
   }
   appendText(stack, marks, input.slice(cursor))
   if (stack.length !== 1 || used.size !== marks.length) {
-    throw new MarkError('Faltan marcas o hay marcas sin cerrar')
+    throw new MarkError('Marks are missing or left unclosed')
   }
   return mergeTexts(stack[0]!.children)
 }
@@ -300,101 +301,11 @@ export const replaceContainers = (
     serialize(container.children ?? [], marks)
     const value = translated[index]
     index += 1
-    if (value === undefined) throw new MarkError('Falta la traducción de un párrafo')
+    if (value === undefined) throw new MarkError('A paragraph translation is missing')
     container.children = parse(value, marks)
   })
   if (index !== translated.length) {
-    throw new MarkError('Hay más traducciones que párrafos')
+    throw new MarkError('There are more translations than paragraphs')
   }
   return clone
-}
-
-type MarkShape = {
-  pairs: Set<number>
-  voids: Set<number>
-  texts: Set<number>
-  parents: Map<number, number | null>
-}
-
-type OpenMark = { index: number; hasChild: boolean; hasText: boolean }
-
-const declare = (
-  shape: MarkShape,
-  isVoid: boolean,
-  index: number,
-  parent: number | null,
-): boolean => {
-  const [set, other] = isVoid ? [shape.voids, shape.pairs] : [shape.pairs, shape.voids]
-  if (set.has(index) || other.has(index)) return false
-  set.add(index)
-  shape.parents.set(index, parent)
-  return true
-}
-
-const closeShape = (shape: MarkShape, open: OpenMark[], index: number): boolean => {
-  const top = open.pop()
-  if (!top || top.index !== index) return false
-  if (top.hasChild && top.hasText) return false
-  if (!top.hasChild) shape.texts.add(index)
-  return true
-}
-
-const consumeToken = (
-  shape: MarkShape,
-  open: OpenMark[],
-  match: RegExpMatchArray,
-): boolean => {
-  const index = Number(match[1] ?? match[2] ?? match[3])
-  if (match[3]) return closeShape(shape, open, index)
-  const parent = open[open.length - 1]
-  const isVoid = Boolean(match[1])
-  if (!declare(shape, isVoid, index, parent?.index ?? null)) return false
-  if (parent) parent.hasChild = true
-  if (!isVoid) open.push({ index, hasChild: false, hasText: false })
-  return true
-}
-
-const isClosed = (shape: MarkShape, open: OpenMark[], tail: string): boolean => {
-  const hasMarks = shape.pairs.size > 0 || shape.voids.size > 0
-  return open.length === 0 && !(hasMarks && tail.trim() !== '')
-}
-
-const shapeOf = (input: string): MarkShape | null => {
-  const shape: MarkShape = {
-    pairs: new Set(),
-    voids: new Set(),
-    texts: new Set(),
-    parents: new Map(),
-  }
-  const open: OpenMark[] = []
-  let cursor = 0
-  for (const match of input.matchAll(TOKEN)) {
-    const between = input.slice(cursor, match.index)
-    cursor = match.index + match[0].length
-    if (between.trim() !== '') {
-      const top = open[open.length - 1]
-      if (!top) return null
-      top.hasText = true
-    }
-    if (!consumeToken(shape, open, match)) return null
-  }
-  return isClosed(shape, open, input.slice(cursor)) ? shape : null
-}
-
-const sameSet = (a: Set<number>, b: Set<number>): boolean =>
-  a.size === b.size && [...a].every(value => b.has(value))
-
-const sameParents = (a: MarkShape, b: MarkShape): boolean =>
-  [...a.parents].every(([index, parent]) => b.parents.get(index) === parent)
-
-export const marksMatch = (source: string, translated: string): boolean => {
-  const expected = shapeOf(source)
-  const actual = shapeOf(translated)
-  if (!expected || !actual) return false
-  return (
-    sameSet(expected.pairs, actual.pairs) &&
-    sameSet(expected.voids, actual.voids) &&
-    sameSet(expected.texts, actual.texts) &&
-    sameParents(expected, actual)
-  )
 }

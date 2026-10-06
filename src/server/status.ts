@@ -14,7 +14,7 @@ import type { TranslatorSettings } from './settings.js'
 export type LocaleStatus = {
   locale: string
   state: 'none' | 'queued' | 'running' | 'done' | 'failed'
-  // Idioma desde el que se tradujo la última vez; `null` sin registro.
+  // Locale it was last translated from; `null` without a record.
   sourceLocale: string | null
   stale: boolean
   changed: number
@@ -27,8 +27,8 @@ export type LocaleStatus = {
 export type StatusResponse = {
   enabled: boolean
   writesLive: boolean
-  // Última publicación del documento: un borrador traducido antes ya está publicado.
-  // Siempre `null` sin borradores.
+  // The document's latest publication: a draft translated before it is already published.
+  // Always `null` without drafts.
   lastPublishedAt: string | null
   locales: LocaleStatus[]
 }
@@ -39,8 +39,8 @@ type Translatables = TranslatableValue[]
 
 const BUSY_WINDOW_MS = 15 * 60 * 1000
 
-// Un registro en curso cuyo contenedor murió se queda en `running` para siempre; pasado
-// este margen deja de bloquear una traducción nueva.
+// An in-progress record whose process died stays `running` forever; after this window it
+// stops blocking a new translation.
 export const isBusy = (
   record: Pick<TranslationRecord, 'status' | 'updatedAt'> | undefined,
 ): boolean =>
@@ -60,7 +60,7 @@ const untranslated = (locale: string): LocaleStatus => ({
   kept: 0,
 })
 
-// Solo un idioma terminado se compara con su origen; en los demás no hay nada que medir.
+// Only a finished locale is compared with its source; for the rest there is nothing to measure.
 const staleness = ({
   record,
   source,
@@ -77,11 +77,11 @@ const staleness = ({
 }
 
 export const INTERRUPTED_ERROR =
-  'La traducción se interrumpió sin terminar; puedes volver a lanzarla'
+  'The translation was interrupted before it finished; you can start it again'
 
-// Un `queued`/`running` caducado ya no bloquea nada (`isBusy`), así que para la interfaz
-// es un fallo que se puede reintentar, no un «Traduciendo…» eterno. Se decide al leer:
-// `/status` no escribe en los registros.
+// An expired `queued`/`running` record no longer blocks anything (`isBusy`), so for the UI
+// it is a failure that can be retried, not an endless "Translating…". It is decided on
+// read: `/status` does not write to the records.
 const stateOf = (record: LocaleRecord): Pick<LocaleStatus, 'state' | 'error'> => {
   const pending = record.status === 'queued' || record.status === 'running'
   if (pending && !isBusy(record)) return { state: 'failed', error: INTERRUPTED_ERROR }
@@ -119,9 +119,9 @@ const readerOf =
   async args =>
     collectTranslatables({ fields: entity.fields, data: await entity.read(args), blocks })
 
-// Cada idioma terminado se compara con el texto del idioma desde el que se tradujo, que
-// se lee una sola vez aunque lo compartan varios; el destino se lee sin fallback para que
-// un campo vaciado a mano cuente como vacío.
+// Each finished locale is compared with the text of the locale it was translated from,
+// which is read only once even if several share it; the target is read without fallback so
+// that a field emptied by hand counts as empty.
 const readComparisons = async ({
   read,
   done,
@@ -134,7 +134,7 @@ const readComparisons = async ({
   sourceOf: (record: LocaleRecord) => Translatables
   targets: Map<string, Translatables>
 }> => {
-  // Un registro terminado sin origen no debería existir; por si acaso, el idioma por defecto.
+  // A finished record without `sourceLocale` is compared with the default locale.
   const sourceLocaleOf = (record: LocaleRecord): string =>
     record.sourceLocale ?? defaultLocale
   const sourceLocales = [...new Set(done.map(sourceLocaleOf))]
@@ -180,12 +180,13 @@ export const buildStatus = async ({
     findRecords(payload, ref),
   ])
   if (!doc) return null
-  // Sin derecho a leer el documento, el estado tampoco: para quien pregunta, no existe.
+  // Without the right to read the document, no status either: for the requester, it does
+  // not exist.
   if (!(await docPermissions({ req, ref })).read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')
-  // Con el permiso de lectura ya comprobado: las versiones se leen con el acceso del API
-  // local, como el propio documento.
+  // With read permission already checked: the versions are read with the Local API's
+  // access, like the document itself.
   const [{ sourceOf, targets }, lastPublishedAt] = await Promise.all([
     readComparisons({
       read: readerOf(entity, payload.config.blocks ?? []),

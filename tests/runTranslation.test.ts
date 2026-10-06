@@ -172,7 +172,7 @@ describe('runTranslation', () => {
     const failing: TranslatorSettings = {
       ...settings,
       provider: {
-        translate: vi.fn().mockRejectedValue(new ProviderError('clave inválida', false)),
+        translate: vi.fn().mockRejectedValue(new ProviderError('invalid key', false)),
       },
     }
 
@@ -181,7 +181,7 @@ describe('runTranslation', () => {
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(records.mock.calls.at(-1)![0].data).toMatchObject({
       status: 'failed',
-      error: 'clave inválida',
+      error: 'invalid key',
     })
   })
 
@@ -195,14 +195,14 @@ describe('runTranslation', () => {
 
   it('keeps the original error and cancellation when saving the failed record also fails', async () => {
     const { payload, records } = fakePayload(pending)
-    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db caída'))
+    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db down'))
 
     await expect(
       runTranslation({
         isLastAttempt: true,
         payload,
         input,
-        settings: failedProvider(new ProviderError('clave inválida', false)),
+        settings: failedProvider(new ProviderError('invalid key', false)),
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(payload.logger.error).toHaveBeenCalled()
@@ -211,7 +211,7 @@ describe('runTranslation', () => {
   it('rethrows the original error when saving the failed record also fails', async () => {
     const { payload, records } = fakePayload(pending)
     const original = new ProviderError('cuota', true)
-    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db caída'))
+    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db down'))
 
     await expect(
       runTranslation({
@@ -399,7 +399,7 @@ const failingFor = (locale: string, error: Error): TranslatorSettings => {
   }
 }
 
-// Guarda documentos y registros entre ejecuciones para poder simular el reintento del job.
+// Keeps documents and records between runs so the job retry can be simulated.
 const statefulPayload = (
   docs: Docs,
 ): { payload: Payload; update: ReturnType<typeof vi.fn> } => {
@@ -511,7 +511,7 @@ describe('runTranslation with several target locales', () => {
     const failing: TranslatorSettings = {
       ...settings,
       provider: {
-        translate: vi.fn().mockRejectedValue(new ProviderError('clave inválida', false)),
+        translate: vi.fn().mockRejectedValue(new ProviderError('invalid key', false)),
       },
     }
 
@@ -623,7 +623,7 @@ describe('runTranslation retries and safety checks', () => {
         isLastAttempt: false,
         payload,
         input: allTargets,
-        settings: failingFor('ca', new ProviderError('clave inválida', false)),
+        settings: failingFor('ca', new ProviderError('invalid key', false)),
       }),
     ).rejects.toThrow()
     expect(lastRecord(records, 'ca')).toMatchObject({ status: 'failed' })
@@ -663,7 +663,7 @@ describe('runTranslation retries and safety checks', () => {
     expect((error as Error).message).toContain('ca')
     expect(lastRecord(records, 'ca')).toMatchObject({
       status: 'queued',
-      error: expect.stringContaining('se reintentará'),
+      error: expect.stringContaining('it will be retried'),
     })
   })
 
@@ -700,7 +700,7 @@ describe('runTranslation retries and safety checks', () => {
 
   it('keeps going with the other locales when saving the running record fails', async () => {
     const { payload, records } = fakePayload({ docs: { ...bothLocales } })
-    const dbError = new Error('db caída')
+    const dbError = new Error('db down')
     records.mockRejectedValueOnce(dbError)
 
     await expect(
@@ -734,7 +734,7 @@ describe('runTranslation retries and safety checks', () => {
 
     const saved = lastRecord(records, 'ca')
     expect(saved.status).toBe('failed')
-    expect(saved.error).not.toContain('se reintentará')
+    expect(saved.error).not.toContain('it will be retried')
   })
 
   it('keeps the translation going when the heartbeat cannot be saved', async () => {
@@ -910,7 +910,7 @@ describe('runTranslation from a locale other than the default', () => {
         isLastAttempt: true,
         payload,
         input: { ...fromCatalan, targetLocales: ['en'] },
-        settings: failingFor('en', new ProviderError('clave inválida', false)),
+        settings: failingFor('en', new ProviderError('invalid key', false)),
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
 
@@ -1161,7 +1161,7 @@ describe('runTranslation and hooks that rewrite what it writes', () => {
     }) => Promise<unknown>
     const writes = update as Mock<Write>
     const write = writes.getMockImplementation()!
-    // Un `beforeChange` que normaliza el valor, como haría `formatSlug`.
+    // A `beforeChange` that normalizes the value, as `formatSlug` would.
     writes.mockImplementation(async args => {
       if (args.collection === RECORDS_SLUG) return write(args)
       const data = args.data as { title: string }
@@ -1182,7 +1182,7 @@ describe('runTranslation and hooks that rewrite what it writes', () => {
     expect(record.status).toBe('done')
     expect(record.fields.title?.output).toBe(fingerprint(['[ca] curso intensivo']))
 
-    // En la siguiente pasada el texto normalizado sigue siendo nuestro: nada que traducir.
+    // On the next pass the normalized text is still ours: nothing to translate.
     const translate = vi.fn(fakeProvider().translate)
     await runTranslation({
       isLastAttempt: false,

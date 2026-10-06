@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import type { ReactElement, ReactNode } from 'react'
@@ -114,7 +115,7 @@ vi.mock('@payloadcms/ui', async () => {
     url?: string
   }): ReactElement =>
     el === 'anchor' ? (
-      // Como el real: con `onClick` cancela la navegación.
+      // Like the real one: with `onClick` it cancels the navigation.
       <a
         className={className}
         href={url}
@@ -192,8 +193,8 @@ const row = (overrides: Partial<LocaleFixture> & { locale: string }): LocaleFixt
   ...overrides,
 })
 
-// Como el servidor: un elemento por idioma de la entidad, el abierto incluido (si el
-// fixture no lo trae, se añade sin traducir).
+// Like the server: one item per locale of the entity, the open one included (if the
+// fixture does not bring it, it is added untranslated).
 const status = (locales?: LocaleFixture[]): Record<string, unknown> => ({
   enabled: true,
   locales: !locales
@@ -248,7 +249,7 @@ const submit = async (): Promise<void> => {
   )
 }
 
-// La que anuncia: la del drawer mientras está abierto, la de la barra si no.
+// The one that announces: the drawer's while it is open, the bar's otherwise.
 const liveRegion = (): HTMLElement =>
   screen.queryByRole('dialog')
     ? within(drawer()).getByRole('status')
@@ -1367,7 +1368,7 @@ describe('TranslateControl: translating', () => {
     expect(liveRegion().textContent).toContain('translator:done')
   })
 
-  it('keeps «Review» inert until no requested language is in progress', async () => {
+  it('keeps "Review" inert until no requested language is in progress', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetchMock = vi
       .fn()
@@ -1427,7 +1428,7 @@ describe('TranslateControl: translating', () => {
     for (const link of reviews) expect(link.getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('keeps «Retry» inert while something is in progress', async () => {
+  it('keeps "Retry" inert while something is in progress', async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -1696,7 +1697,7 @@ describe('TranslateControl: drafts in a target locale', () => {
     expect(screen.queryByText('translator:unpublishedShort')).toBeNull()
   })
 
-  // Publicar no recarga la página: Payload pone el contador a 0 en `useDocumentInfo`.
+  // Publishing does not reload the page: Payload sets the counter to 0 in `useDocumentInfo`.
   it('drops the notice when the draft gets published without reloading', async () => {
     documentInfo.unpublishedVersionCount = 1
     locale.code = 'ca'
@@ -1797,8 +1798,8 @@ describe('TranslateControl: open locale outside the entity', () => {
   })
 })
 
-describe('TranslateControl: focus after «Retry»', () => {
-  it('keeps the focus on «Retry» while it is sent and hands it to the row once queued', async () => {
+describe('TranslateControl: focus after "Retry"', () => {
+  it('keeps the focus on "Retry" while it is sent and hands it to the row once queued', async () => {
     const failed = status([
       row({ locale: 'ca', state: 'failed', error: 'boom' }),
       row({ locale: 'en' }),
@@ -1842,7 +1843,7 @@ describe('TranslateControl: focus after «Retry»', () => {
   })
 })
 
-// Como `fetch`: queda pendiente hasta que se aborta, y entonces rechaza.
+// Like `fetch`: it stays pending until aborted, and then rejects.
 const abortable = (signal: AbortSignal | undefined): Promise<Response> =>
   new Promise((_, reject) => {
     signal?.addEventListener('abort', () => {
@@ -1984,7 +1985,7 @@ describe('TranslateControl: polling that cannot go on', () => {
 })
 
 describe('TranslateControl: in a nested document drawer', () => {
-  it('links «Review» to the document itself in a new tab', async () => {
+  it('links "Review" to the document itself in a new tab', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     editDepth.value = 2
     vi.stubGlobal(

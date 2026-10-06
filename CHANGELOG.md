@@ -1,15 +1,34 @@
 # Changelog
 
-## 0.1.0
+All notable changes to this project are documented in this file.
 
-First release, extracted from the AI content translator built for a Payload 3.90 project.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
+project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-- `translatorPlugin` translates localized `text`, `textarea` and Lexical `richText` fields
-  of collections and globals from the locale open in the admin into the others: as drafts
-  when the entity has them, written directly when it does not.
-- Never overwrites text it did not write unless the editor asks for it.
-- Admin control with per-locale state (stale, changed and empty fields), retries and
-  notices; endpoints `POST /api/translator/translate` and `GET /api/translator/status`.
-- `translation-records` collection and `translateDocument` job task.
+## [0.1.0] - Unreleased
+
+First release.
+
+### Added
+
+- `translatorPlugin`, which translates localized `text`, `textarea` and Lexical `richText`
+  fields of collections and globals, including inside arrays, groups, tabs and blocks,
+  from the locale open in the admin into the entity's other locales: as drafts when the
+  entity has them, written directly when it does not.
+- A no-overwrite rule backed by per-field fingerprints: text the translator did not write
+  is kept unless the editor asks to overwrite it (`overwriteEdited`).
+- An admin control with per-locale state (out of date, changed and empty fields, errors,
+  unpublished drafts), retries and notices, in English and Spanish, with English as the
+  fallback for any other admin language; `translatorTranslations` exports the catalogs.
+- Endpoints `POST /api/translator/translate` and `GET /api/translator/status`, guarded by
+  the plugin's `access` and by the document's own read and update access.
+- The `translation-records` collection and the `translateDocument` job task, with retries
+  and per-document concurrency control.
+- `onLiveWrite`, to revalidate the public site after a translation of an entity without
+  drafts.
+- `isTranslatorWrite` and `TRANSLATOR_WRITE_CONTEXT`, to recognise the translator's writes
+  in hooks.
 - Providers: `openAIProvider` (`/openai` entry, optional `openai` peer) and
   `fakeProvider`.
+
+[0.1.0]: https://github.com/Runroom/payload-plugin-translator/releases/tag/v0.1.0

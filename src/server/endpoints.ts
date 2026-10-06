@@ -17,7 +17,7 @@ type TranslateBody = {
 
 const json = (body: unknown, status: number): Response => Response.json(body, { status })
 
-// Un global se pide por `global`; un documento, por `collection` + `id`.
+// A global is requested by `global`; a document, by `collection` + `id`.
 const refOf = (value: {
   global?: unknown
   collection?: unknown
@@ -61,8 +61,8 @@ const queueTranslations = async ({
   body: TranslateBody
   targets: string[]
 }): Promise<{ recordsSaved: boolean }> => {
-  // El job va antes que los registros: un `queued` sin job bloquearía el documento con
-  // 409 hasta que caduque.
+  // The job goes before the records: a `queued` record without a job would lock the
+  // document with 409 until it expires.
   const job = (await req.payload.jobs.queue({
     task: TRANSLATE_TASK_SLUG as never,
     queue: settings.queue,
@@ -73,10 +73,10 @@ const queueTranslations = async ({
       overwriteEdited: body.overwriteEdited,
     } as never,
   })) as unknown as { id: string | number }
-  // Si fallan los registros el job ya existe: se lanza igual, porque él mismo los deja
-  // en `running`/`done` al correr (`saveRecord` crea el que falte), y no queda huérfano
-  // esperando al cron. La respuesta sí avisa (500): el cliente no puede dar por hecho que
-  // el documento quedó bloqueado.
+  // If the records fail, the job already exists: it is run anyway, because it sets them to
+  // `running`/`done` itself when it runs (`saveRecord` creates any that is missing), so it
+  // is not left orphaned waiting for the cron. The response does warn (500): the client
+  // cannot assume the document got locked.
   let recordsSaved = true
   try {
     for (const targetLocale of targets) {
@@ -87,12 +87,13 @@ const queueTranslations = async ({
     recordsSaved = false
     req.payload.logger.error({ err: error, msg: 'Translator records save failed' })
   }
-  // Se lanza al encolar para no esperar al cron, y sin esperar porque la traducción no
-  // cabe en la respuesta HTTP: el servidor es un proceso Node de larga vida y la promesa
-  // sobrevive a la respuesta. El cron solo lanza jobs encolados que nadie ejecutó (por
-  // ejemplo tras un reinicio) y no rescata uno que estaba en curso; en E2E no hay cron.
-  // Se filtra por id porque `run` sin `where` coge los jobs más antiguos de la cola, no
-  // este; `runByID` no sirve porque ejecuta el job aunque el cron ya lo esté procesando.
+  // It is run when queued so it does not wait for the cron, and without awaiting it because
+  // the translation does not fit in the HTTP response: the server is a long-lived Node
+  // process and the promise outlives the response. The cron only runs queued jobs nobody
+  // ran (after a restart, for instance) and does not rescue one that was in progress; E2E
+  // runs have no cron. It filters by id because `run` without `where` takes the oldest jobs
+  // in the queue, not this one; `runByID` does not work because it runs the job even while
+  // the cron is already processing it.
   void req.payload.jobs
     .run({ queue: settings.queue, limit: 1, where: { id: { in: [job.id] } } })
     .catch((error: unknown) => {
@@ -122,7 +123,7 @@ const entityExists = async ({
   return entity !== null && (await entity.find({ locale })) !== null
 }
 
-// El origen es el idioma abierto en el admin; los destinos, cualquier otro de la entidad.
+// The source is the locale open in the admin; the targets, any other locale of the entity.
 const targetsOf = (body: TranslateBody, config: EntityLocales): string[] | null => {
   if (!config.locales.includes(body.sourceLocale)) return null
   const targets = body.targetLocales.filter(
@@ -131,8 +132,8 @@ const targetsOf = (body: TranslateBody, config: EntityLocales): string[] | null 
   return targets.length > 0 ? targets : null
 }
 
-// Un global que no está configurado no existe para el traductor; una colección sin
-// configurar es una petición mal hecha.
+// A global that is not configured does not exist for the translator; an unconfigured
+// collection is a malformed request.
 const resolveTargets = (
   settings: TranslatorSettings,
   body: TranslateBody,
@@ -145,8 +146,8 @@ const resolveTargets = (
   return targetsOf(body, config) ?? json({ error: 'bad-request' }, 400)
 }
 
-// Sin lectura el documento no existe para quien pide; sin actualización, se le niega:
-// traducir escribe en él (y sin borradores, publica).
+// Without read access the document does not exist for the requester; without update
+// access, the request is denied: translating writes to it (and, without drafts, publishes).
 const refuseDocument = async ({
   req,
   body,
@@ -166,8 +167,8 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
   path: '/translator/translate',
   method: 'post',
   handler: async req => {
-    // El cuerpo va antes que `access` para poder pasarle el documento; a quien no tiene
-    // acceso un cuerpo malformado le da 400 en vez de 403, y no se le cuenta nada más.
+    // The body is parsed before `access` so the document can be passed to it; a requester
+    // without access gets 400 instead of 403 for a malformed body, and learns nothing else.
     const body = parseBody(await readBody(req))
     if (!body) return json({ error: 'bad-request' }, 400)
     if (!(await settings.access({ req, ref: body.ref, operation: 'translate' })))
@@ -179,8 +180,8 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     if (refused) return refused
 
     const records = await findRecords(req.payload, body.ref)
-    // El bloqueo es por documento y no por idioma: dos jobs del mismo documento a la vez
-    // escribirían en paralelo y una pisaría a la otra.
+    // The lock is per document, not per locale: two jobs for the same document at once
+    // would write in parallel and one would overwrite the other.
     const busy = records.filter(isBusy).map(item => item.targetLocale)
     if (busy.length > 0) return json({ error: 'busy', busy }, 409)
 

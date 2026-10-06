@@ -52,8 +52,8 @@ const schemaFor = (keys: string[]): Record<string, unknown> => ({
   additionalProperties: false,
 })
 
-// Un 429 por cuota agotada (`insufficient_quota`) no se arregla esperando: es facturación,
-// no límite de ritmo.
+// A 429 for an exhausted quota (`insufficient_quota`) is not fixed by waiting: it is
+// billing, not rate limiting.
 const isQuotaExhausted = (error: { code?: unknown; error?: unknown }): boolean =>
   error.code === 'insufficient_quota' ||
   (error.error as { code?: unknown } | null | undefined)?.code === 'insufficient_quota'
@@ -72,18 +72,17 @@ const refusalOf = (response: CreateResult): string | undefined =>
     .flatMap(item => item.content ?? [])
     .find(part => part.type === 'refusal')?.refusal
 
-// Una respuesta cortada por `max_output_tokens` puede salir entera en otro intento; una
-// negativa del modelo o un corte del filtro de contenido se repetirían igual con el mismo
-// texto.
+// A response cut by `max_output_tokens` may come out whole on another attempt; a refusal
+// from the model or a content-filter cut would repeat the same way with the same text.
 const assertUsable = (response: CreateResult): void => {
   const refusal = refusalOf(response)
   if (refusal !== undefined) {
-    throw new ProviderError(`OpenAI se negó a traducir: ${refusal}`, false)
+    throw new ProviderError(`OpenAI refused to translate: ${refusal}`, false)
   }
   if (response.status === 'incomplete') {
-    const reason = response.incomplete_details?.reason ?? 'motivo desconocido'
+    const reason = response.incomplete_details?.reason ?? 'unknown reason'
     throw new ProviderError(
-      `OpenAI devolvió una respuesta incompleta (${reason})`,
+      `OpenAI returned an incomplete response (${reason})`,
       reason !== 'content_filter',
     )
   }
@@ -94,24 +93,24 @@ const parseReply = (outputText: string, keys: string[]): Record<string, string> 
   try {
     parsed = JSON.parse(outputText)
   } catch {
-    throw new ProviderError('OpenAI devolvió una respuesta que no es JSON', true)
+    throw new ProviderError('OpenAI returned a response that is not JSON', true)
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
-    throw new ProviderError('OpenAI devolvió una respuesta que no es un objeto', true)
+    throw new ProviderError('OpenAI returned a response that is not an object', true)
   const reply = parsed as Record<string, unknown>
   const replyKeys = Object.keys(reply)
   const complete =
     replyKeys.length === keys.length && keys.every(key => typeof reply[key] === 'string')
   if (!complete)
-    throw new ProviderError('OpenAI devolvió claves distintas a las enviadas', true)
+    throw new ProviderError('OpenAI returned keys different from the ones sent', true)
   return reply as Record<string, string>
 }
 
 export const openAIProvider = ({
   apiKey,
   model,
-  // Los valores por defecto del SDK (10 min y 2 reintentos) dejarían un job vivo más
-  // allá de la ventana en que su registro bloquea el documento.
+  // The SDK defaults (10 min and 2 retries) would keep a job alive beyond the window in
+  // which its record locks the document.
   client = new OpenAI({
     apiKey,
     timeout: 60_000,

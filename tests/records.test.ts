@@ -43,7 +43,7 @@ describe('saveRecord', () => {
   })
 
   it('rethrows the create error when the record still does not exist', async () => {
-    const failure = new Error('db caída')
+    const failure = new Error('db down')
     const create = vi.fn().mockRejectedValue(failure)
     const { payload } = fakePayload({ finds: [[], []], create })
 

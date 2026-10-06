@@ -8,9 +8,10 @@ export const TRANSLATE_TASK_SLUG = 'translateDocument'
 
 const RETRIES = { attempts: 2, backoff: { type: 'exponential', delay: 10_000 } } as const
 
-// Dos POST simultáneos pasan el 409 y encolan dos jobs del mismo documento; con la misma
-// clave Payload no los corre a la vez (exige `jobs.enableConcurrencyControl`, que el
-// plugin activa). El segundo, al correr, lo encuentra todo al día y no gasta.
+// Two simultaneous POSTs get past the 409 and queue two jobs for the same document; with
+// the same key Payload does not run them at once (it requires
+// `jobs.enableConcurrencyControl`, which the plugin turns on). The second one, when it
+// runs, finds everything up to date and spends nothing.
 export const concurrencyKeyOf = ({
   entityType,
   collectionSlug,
@@ -21,7 +22,7 @@ export const concurrencyKeyOf = ({
 export const translateTask = (settings: TranslatorSettings): TaskConfig =>
   ({
     slug: TRANSLATE_TASK_SLUG,
-    label: 'Traducir documento',
+    label: 'Translate document',
     concurrency: {
       exclusive: true,
       key: ({ input }: { input: RawTranslationJobInput }) => concurrencyKeyOf(input),
@@ -30,7 +31,7 @@ export const translateTask = (settings: TranslatorSettings): TaskConfig =>
       { name: 'entityType', type: 'select', options: ['collection', 'global'] },
       { name: 'collectionSlug', type: 'text', required: true },
       { name: 'docId', type: 'text', required: true },
-      // Opcional: los jobs encolados antes de poder elegir el origen no lo llevan.
+      // Optional: an input without it is translated from the default locale.
       { name: 'sourceLocale', type: 'text' },
       { name: 'targetLocales', type: 'json', required: true },
       { name: 'overwriteEdited', type: 'checkbox' },
@@ -45,13 +46,13 @@ export const translateTask = (settings: TranslatorSettings): TaskConfig =>
       job: { totalTried?: number }
       req: { payload: never }
     }) => {
-      // `totalTried` cuenta las ejecuciones ya fallidas; Payload deja de reintentar cuando
-      // llega a `attempts`, así que esta es la última.
+      // `totalTried` counts the runs that already failed; Payload stops retrying when it
+      // reaches `attempts`, so this one is the last.
       await runTranslation({
         payload: req.payload,
         input: {
           ...input,
-          // Los jobs encolados antes de que existieran los globals no lo llevan.
+          // An input without `entityType` refers to a collection document.
           entityType: input.entityType === 'global' ? 'global' : 'collection',
           overwriteEdited: input.overwriteEdited === true,
         },
