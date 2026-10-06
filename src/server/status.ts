@@ -27,6 +27,9 @@ export type LocaleStatus = {
 export type StatusResponse = {
   enabled: boolean
   writesLive: boolean
+  // Última publicación del documento: un borrador traducido antes ya está publicado.
+  // Siempre `null` sin borradores.
+  lastPublishedAt: string | null
   locales: LocaleStatus[]
 }
 
@@ -181,14 +184,20 @@ export const buildStatus = async ({
   if (!(await docPermissions({ req, ref })).read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')
-  const { sourceOf, targets } = await readComparisons({
-    read: readerOf(entity, payload.config.blocks ?? []),
-    done,
-    defaultLocale,
-  })
+  // Con el permiso de lectura ya comprobado: las versiones se leen con el acceso del API
+  // local, como el propio documento.
+  const [{ sourceOf, targets }, lastPublishedAt] = await Promise.all([
+    readComparisons({
+      read: readerOf(entity, payload.config.blocks ?? []),
+      done,
+      defaultLocale,
+    }),
+    entity.lastPublishedAt(),
+  ])
   return {
     enabled: settings.provider !== null,
     writesLive: entity.writesLive,
+    lastPublishedAt,
     locales: config.locales.map(locale => {
       const record = records.find(item => item.targetLocale === locale)
       const isDone = record?.status === 'done'

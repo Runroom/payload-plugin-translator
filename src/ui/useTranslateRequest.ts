@@ -6,6 +6,33 @@ import type { Message } from './messages.js'
 import type { TranslateOptionValues } from './options.js'
 import type { Target } from './target.js'
 
+const REFUSALS: Record<number, string> = {
+  400: 'translator:badRequest',
+  403: 'translator:forbidden',
+  404: 'translator:notFound',
+  409: 'translator:busy',
+  503: 'translator:notConfigured',
+}
+
+const errorCodeOf = async (response: Response): Promise<unknown> => {
+  try {
+    return ((await response.json()) as { error?: unknown } | null)?.error
+  } catch {
+    return undefined
+  }
+}
+
+// Un 500 `records-failed` no es un fallo al lanzar: el job ya está encolado, pero sin
+// registros el estado no puede seguirlo. El resto de 5xx y los fallos de red sí lo son.
+const refusalOf = async (response: Response): Promise<Message | null> => {
+  if (response.ok) return null
+  const key = REFUSALS[response.status]
+  if (key) return { key }
+  if (response.status === 500 && (await errorCodeOf(response)) === 'records-failed')
+    return { key: 'translator:recordsFailed' }
+  return { key: 'translator:requestFailed' }
+}
+
 const requestTranslation = async ({
   url,
   body,
@@ -13,19 +40,18 @@ const requestTranslation = async ({
   url: string
   body: Record<string, unknown>
 }): Promise<Message | null> => {
+  let response: Response
   try {
-    const response = await fetch(url, {
+    response = await fetch(url, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (response.status === 409) return { key: 'translator:busy' }
-    if (response.status === 503) return { key: 'translator:notConfigured' }
-    return response.ok ? null : { key: 'translator:requestFailed' }
   } catch {
     return { key: 'translator:requestFailed' }
   }
+  return refusalOf(response)
 }
 
 export type SendTranslation = (request: {
@@ -33,30 +59,32 @@ export type SendTranslation = (request: {
   options: TranslateOptionValues
 }) => Promise<void>
 
-// `requested` es la última petición (la que resume la región viva); `translated`
-// acumula los idiomas lanzados en esta visita, que pasan a «lista» al terminar.
+// `onLaunched` y `onRefused` dicen al resumen qué lote seguir; `translated` acumula los
+// idiomas lanzados en esta visita, que pasan a «lista» al terminar.
 export const useTranslateRequest = ({
   apiBase,
   target,
   sourceLocale,
   markQueued,
   refresh,
+  onLaunched,
+  onRefused,
 }: {
   apiBase: string
   target: Target | null
   sourceLocale: string
   markQueued: (locales: string[]) => void
   refresh: () => Promise<void>
+  onLaunched: (locales: string[]) => void
+  onRefused: () => void
 }): {
   submitting: boolean
-  requested: string[]
   translated: string[]
   notice: Message | null
   clearNotice: () => void
   send: SendTranslation
 } => {
   const [submitting, setSubmitting] = useState(false)
-  const [requested, setRequested] = useState<string[]>([])
   const [translated, setTranslated] = useState<string[]>([])
   const [notice, setNotice] = useState<Message | null>(null)
 
@@ -73,9 +101,11 @@ export const useTranslateRequest = ({
     })
     setSubmitting(false)
     setNotice(failure)
-    if (!failure) {
+    if (failure) {
+      onRefused()
+    } else {
       markQueued(targetLocales)
-      setRequested(targetLocales)
+      onLaunched(targetLocales)
       setTranslated(current => [...new Set([...current, ...targetLocales])])
     }
     await refresh()
@@ -83,7 +113,6 @@ export const useTranslateRequest = ({
 
   return {
     submitting,
-    requested,
     translated,
     notice,
     clearNotice: () => setNotice(null),

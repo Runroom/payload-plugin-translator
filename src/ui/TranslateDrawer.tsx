@@ -8,6 +8,7 @@ import type { LocaleStatus, StatusResponse } from '../server/status.js'
 import { isUpToDate, LocaleStates } from './LocaleStates.js'
 import { Notice } from './Notice.js'
 import { TranslateOptions } from './TranslateOptions.js'
+import type { LocaleLink } from './localeLink.js'
 import type { Message, Translate } from './messages.js'
 import { defaultOptionValues, TRANSLATE_OPTIONS } from './options.js'
 import type { SendTranslation } from './useTranslateRequest.js'
@@ -23,6 +24,7 @@ type DrawerProps = {
   labelOf: (code: string) => string
   sourceLabelOf: (item: LocaleStatus) => string
   language: string
+  linkOf: (locale: string) => LocaleLink | null
   refresh: () => Promise<void>
   send: SendTranslation
   t: Translate
@@ -58,8 +60,10 @@ const DrawerHeader = ({
   )
 }
 
+// La región viva de la barra queda fuera del `<dialog aria-modal>` y hay lectores que no
+// anuncian nada fuera del modal: mientras el drawer está abierto, anuncia esta.
 const Summary = ({ messages, t }: Pick<DrawerProps, 'messages' | 't'>): ReactElement => (
-  <div className="rr-translator__summary">
+  <div role="status" className="rr-translator__summary">
     {messages.map(message => (
       <p key={message.key}>{t(message.key as never, message.vars)}</p>
     ))}
@@ -120,6 +124,7 @@ const DrawerBody = ({
   labelOf,
   sourceLabelOf,
   language,
+  linkOf,
   refresh,
   send,
   t,
@@ -173,6 +178,7 @@ const DrawerBody = ({
         onRetry={code => void translate([code])}
         retryDescribedBy={modeDescription}
         writesLive={status.writesLive}
+        linkOf={linkOf}
         t={t}
       />
       <TranslateOptions

@@ -143,9 +143,12 @@ translator wrote.
     when the document or global does not exist, 409 when any locale of the document is
     already being translated, and 503 without a provider.
   - `GET /api/translator/status?collection=…&id=…` (or `?global=…`) answers
-    `{ enabled, writesLive, locales }`, with one entry per locale of the entity:
+    `{ enabled, writesLive, lastPublishedAt, locales }`, with one entry per locale of the
+    entity:
     `{ locale, state, sourceLocale, stale, changed, missing, error, translatedAt, kept }`.
-    `writesLive` is `true` for entities without drafts.
+    `writesLive` is `true` for entities without drafts. `lastPublishedAt` is the date of
+    the latest published version (`null` without drafts or if never published); the admin
+    flags a locale as an unpublished draft only when its translation is newer.
 - **Drafts vs direct writes.** The mode follows each entity's `versions.drafts`: with
   drafts the job writes with `draft: true`; without them there is nowhere to leave a
   pending translation, so it writes the document directly. Re-reading before and verifying

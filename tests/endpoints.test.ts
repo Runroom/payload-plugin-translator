@@ -41,6 +41,7 @@ const request = ({
   runError,
   findError,
   createError,
+  versions = [],
   collections = {
     events: {
       config: {
@@ -63,6 +64,7 @@ const request = ({
   runError?: Error
   findError?: Error
   createError?: Error
+  versions?: Record<string, unknown>[]
   collections?: Record<string, unknown>
   globals?: Record<string, unknown>[]
 }): {
@@ -74,6 +76,8 @@ const request = ({
   findGlobal: ReturnType<typeof vi.fn>
   find: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
+  findVersions: ReturnType<typeof vi.fn>
+  findGlobalVersions: ReturnType<typeof vi.fn>
   logError: ReturnType<typeof vi.fn>
   logWarn: ReturnType<typeof vi.fn>
 } => {
@@ -94,6 +98,8 @@ const request = ({
   const logError = vi.fn()
   const logWarn = vi.fn()
   const update = vi.fn()
+  const findVersions = vi.fn(async () => ({ docs: versions }))
+  const findGlobalVersions = vi.fn(async () => ({ docs: versions }))
   const req = {
     json: async () => {
       if (invalidJson) throw new SyntaxError('Unexpected token')
@@ -111,6 +117,8 @@ const request = ({
       findGlobal,
       create,
       update,
+      findVersions,
+      findGlobalVersions,
     },
   } as unknown as PayloadRequest
   return {
@@ -122,6 +130,8 @@ const request = ({
     findGlobal,
     find,
     update,
+    findVersions,
+    findGlobalVersions,
     logError,
     logWarn,
   }
@@ -476,6 +486,7 @@ describe('GET /translator/status', () => {
     expect(body).toEqual({
       enabled: true,
       writesLive: false,
+      lastPublishedAt: null,
       locales: [
         {
           locale: 'es',
@@ -1028,5 +1039,86 @@ describe('GET /translator/status with an expired run', () => {
     const body = await (await endpoint(settings(), '/translator/status')(req)).json()
 
     expect(body.locales[1]).toMatchObject({ locale: 'ca', state: 'running', error: null })
+  })
+})
+
+describe('GET /translator/status and the last publication', () => {
+  it('reports when a document with drafts was last published', async () => {
+    const { req, findVersions } = request({
+      query: 'collection=events&id=e1',
+      versions: [{ id: 'v1', updatedAt: '2026-10-06T09:00:00.000Z' }],
+    })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.lastPublishedAt).toBe('2026-10-06T09:00:00.000Z')
+    expect(findVersions).toHaveBeenCalledWith({
+      collection: 'events',
+      where: {
+        and: [
+          { parent: { equals: 'e1' } },
+          { 'version._status': { equals: 'published' } },
+        ],
+      },
+      sort: '-updatedAt',
+      limit: 1,
+      depth: 0,
+    })
+  })
+
+  it('reports null for a document never published', async () => {
+    const { req } = request({ query: 'collection=events&id=e1' })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.lastPublishedAt).toBeNull()
+  })
+
+  it('reads the published versions of a global with drafts', async () => {
+    const { req, findGlobalVersions } = request({
+      query: 'global=footer',
+      globals: [
+        {
+          slug: 'footer',
+          fields: [{ name: 'tagline', type: 'text', localized: true }],
+          versions: { drafts: true },
+        },
+      ],
+      versions: [{ id: 'v1', updatedAt: '2026-10-06T09:00:00.000Z' }],
+    })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.lastPublishedAt).toBe('2026-10-06T09:00:00.000Z')
+    expect(findGlobalVersions).toHaveBeenCalledWith({
+      slug: 'footer',
+      where: { 'version._status': { equals: 'published' } },
+      sort: '-updatedAt',
+      limit: 1,
+      depth: 0,
+    })
+  })
+
+  it('does not look for versions of content without drafts', async () => {
+    const { req, findGlobalVersions } = request({ query: 'global=footer' })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.lastPublishedAt).toBeNull()
+    expect(findGlobalVersions).not.toHaveBeenCalled()
+  })
+
+  it('does not read the versions of a document the user cannot read', async () => {
+    vi.mocked(docAccessOperation).mockResolvedValueOnce({
+      fields: {},
+      read: false,
+      update: false,
+    } as never)
+    const { req, findVersions } = request({ query: 'collection=events&id=e1' })
+
+    const response = await endpoint(settings(), '/translator/status')(req)
+
+    expect(response.status).toBe(404)
+    expect(findVersions).not.toHaveBeenCalled()
   })
 })

@@ -36,9 +36,18 @@ export const es = {
     kept_one: '{{count}} texto editado a mano no se ha tocado.',
     kept_other: '{{count}} textos editados a mano no se han tocado.',
     failed: 'La traducción ha fallado: {{error}}',
+    failedNoReason: 'La traducción ha fallado.',
     busy: 'Ya hay una traducción en curso para este documento.',
     notConfigured: 'El traductor no está configurado en este entorno.',
     requestFailed: 'No se ha podido iniciar la traducción. Inténtalo de nuevo.',
+    forbidden: 'No tienes permiso para editar este contenido.',
+    notFound: 'Este contenido ya no existe o no tienes acceso.',
+    badRequest: 'La petición no es válida para este contenido.',
+    recordsFailed:
+      'La traducción se ha lanzado, pero no se ha podido registrar su estado. Recarga en unos minutos.',
+    statusUnavailable:
+      'No se ha podido comprobar el estado de la traducción. Pulsa Reintentar para volver a consultarlo.',
+    statusUnavailableShort: 'Estado desconocido',
     review: 'Revisar',
     staleNotice: 'El texto en {{source}} ha cambiado desde la última traducción.',
     missingNotice:
@@ -47,10 +56,15 @@ export const es = {
     finished: 'Traducción terminada.',
     translatingThisLocale:
       'Se está traduciendo este idioma; los cambios aparecerán al terminar. Si editas ahora, tus cambios podrían perderse o retrasar la traducción.',
-    readyThisLocale: 'Traducción lista. Recarga para ver el texto traducido.',
+    readyThisLocale:
+      'Traducción lista. Recarga antes de seguir editando: si guardas sin recargar, perderás la traducción.',
+    readyNestedThisLocale:
+      'Traducción lista. Cierra y vuelve a abrir este documento antes de seguir editando: si guardas sin hacerlo, perderás la traducción.',
     reload: 'Recargar',
     translatingShort: 'Traduciéndose este idioma…',
-    readyShort: 'Traducción lista',
+    readyShort: 'Traducción lista: recarga antes de editar',
+    readyNestedShort: 'Traducción lista: reabre antes de editar',
+    opensInNewTab: '(se abre en una pestaña nueva)',
     failedShort: 'Error al traducir',
     staleShort: 'Desactualizada',
     chooseLanguage: 'Elige al menos un idioma.',

@@ -37,9 +37,18 @@ export const en: typeof es = {
     kept_one: '{{count}} text edited by hand was left untouched.',
     kept_other: '{{count}} texts edited by hand were left untouched.',
     failed: 'The translation failed: {{error}}',
+    failedNoReason: 'The translation failed.',
     busy: 'A translation for this document is already in progress.',
     notConfigured: 'The translator is not configured in this environment.',
     requestFailed: 'The translation could not be started. Please try again.',
+    forbidden: "You don't have permission to edit this content.",
+    notFound: 'This content no longer exists or you do not have access to it.',
+    badRequest: 'The request is not valid for this content.',
+    recordsFailed:
+      'The translation was started, but its status could not be recorded. Reload in a few minutes.',
+    statusUnavailable:
+      'The translation status could not be checked. Press Retry to check it again.',
+    statusUnavailableShort: 'Status unknown',
     review: 'Review',
     staleNotice: 'The {{source}} text has changed since the last translation.',
     missingNotice:
@@ -48,10 +57,15 @@ export const en: typeof es = {
     finished: 'Translation finished.',
     translatingThisLocale:
       'This language is being translated; the changes will appear when it finishes. If you edit now, your changes could be lost or delay the translation.',
-    readyThisLocale: 'Translation ready. Reload to see the translated text.',
+    readyThisLocale:
+      'Translation ready. Reload before you keep editing: if you save without reloading, the translation will be lost.',
+    readyNestedThisLocale:
+      'Translation ready. Close and reopen this document before you keep editing: if you save without doing so, the translation will be lost.',
     reload: 'Reload',
     translatingShort: 'Translating this language…',
-    readyShort: 'Translation ready',
+    readyShort: 'Translation ready: reload before editing',
+    readyNestedShort: 'Translation ready: reopen before editing',
+    opensInNewTab: '(opens in a new tab)',
     failedShort: 'Translation failed',
     staleShort: 'Out of date',
     chooseLanguage: 'Choose at least one language.',

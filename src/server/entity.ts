@@ -23,6 +23,8 @@ export type Entity = {
   // Devuelve el documento tal como quedó guardado: un hook `beforeChange` puede
   // reescribir lo que se mandó (un `formatSlug`), y las huellas tienen que ser de eso.
   write: (args: { locale: string; data: Doc }) => Promise<Doc>
+  // Fecha de la última versión publicada; `null` sin borradores o si nunca se publicó.
+  lastPublishedAt: () => Promise<string | null>
 }
 
 // Un id que el adaptador no puede ni interpretar (no UUID en Postgres, no ObjectID en
@@ -51,6 +53,15 @@ const hasDrafts = (config: EntityConfig): boolean => {
 // publicaría igual. Se omite para que la llamada diga lo que hace, y `/status` lo expone
 // como `writesLive` para que el drawer avise antes de traducir.
 const draftOption = (drafts: boolean): { draft?: true } => (drafts ? { draft: true } : {})
+
+const PUBLISHED = { 'version._status': { equals: 'published' } }
+
+const LATEST_VERSION = { sort: '-updatedAt', limit: 1, depth: 0 } as const
+
+const updatedAtOf = (result: unknown): string | null => {
+  const [latest] = (result as { docs: { updatedAt?: unknown }[] }).docs
+  return typeof latest?.updatedAt === 'string' ? latest.updatedAt : null
+}
 
 const fallbackOption = (withFallback: boolean): { fallbackLocale?: false } =>
   withFallback ? {} : { fallbackLocale: false }
@@ -97,6 +108,16 @@ const collectionEntity = (
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
       })) as unknown as Doc,
+    lastPublishedAt: async () =>
+      drafts
+        ? updatedAtOf(
+            await payload.findVersions({
+              collection: collectionSlug as never,
+              where: { and: [{ parent: { equals: docId } }, PUBLISHED] },
+              ...LATEST_VERSION,
+            }),
+          )
+        : null,
   }
 }
 
@@ -132,6 +153,16 @@ const globalEntity = (
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
       } as never)) as unknown as Doc,
+    lastPublishedAt: async () =>
+      drafts
+        ? updatedAtOf(
+            await payload.findGlobalVersions({
+              slug: slug as never,
+              where: PUBLISHED,
+              ...LATEST_VERSION,
+            }),
+          )
+        : null,
   }
 }
 

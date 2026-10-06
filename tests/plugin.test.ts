@@ -205,6 +205,7 @@ const statusLocales = async (options: { locales?: string[] }): Promise<string[]>
       config: { blocks: [], localization: { defaultLocale: 'es' } },
       find: async (): Promise<{ docs: unknown[] }> => ({ docs: [] }),
       findByID: async (): Promise<{ id: string }> => ({ id: 'e1' }),
+      findVersions: async (): Promise<{ docs: unknown[] }> => ({ docs: [] }),
     },
   }
   const body = (await (await handler(req)).json()) as { locales: { locale: string }[] }
