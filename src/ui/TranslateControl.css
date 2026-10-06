@@ -1,0 +1,389 @@
+/* Solo tokens del admin de Payload (--theme-*, --color-blue-*, --base, --style-radius-*):
+   el plugin no puede depender de los del proyecto. Payload no tiene tono «info» que
+   cambie con el tema, así que se toma su azul y se aclara a mano en oscuro. */
+:is(.rr-translator, .rr-translator-drawer) [data-tone='neutral'] {
+  --rr-tone: var(--theme-elevation-500);
+}
+
+:is(.rr-translator, .rr-translator-drawer) [data-tone='info'] {
+  --rr-tone: var(--color-blue-600);
+}
+
+html[data-theme='dark'] :is(.rr-translator, .rr-translator-drawer) [data-tone='info'] {
+  --rr-tone: var(--color-blue-400);
+}
+
+:is(.rr-translator, .rr-translator-drawer) [data-tone='success'] {
+  --rr-tone: var(--theme-success-600);
+}
+
+:is(.rr-translator, .rr-translator-drawer) [data-tone='warning'] {
+  --rr-tone: var(--theme-warning-600);
+}
+
+:is(.rr-translator, .rr-translator-drawer) [data-tone='error'] {
+  --rr-tone: var(--theme-error-600);
+}
+
+.rr-translator {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: calc(var(--base) * 0.5);
+}
+
+.rr-translator__toggle .btn__label {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--base) * 0.3);
+}
+
+.rr-translator__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--rr-tone);
+}
+
+.rr-translator__spinner {
+  box-sizing: border-box;
+  width: 1em;
+  height: 1em;
+  flex: none;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: rr-translator-spin 0.8s linear infinite;
+}
+
+@keyframes rr-translator-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.rr-translator__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+:is(.rr-translator, .rr-translator-drawer) a:focus-visible,
+.rr-translator-drawer input:focus-visible {
+  outline: var(--accessibility-outline);
+  outline-offset: var(--accessibility-outline-offset);
+}
+
+/* Avisos: la forma del Banner de Payload, con el borde y el icono en el color del tono
+   y el texto en el de siempre, que es el que lleva el significado. */
+.rr-translator__notice {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--base) * 0.5);
+  padding: calc(var(--base) * 0.4) calc(var(--base) * 0.6);
+  border: 1px solid var(--rr-tone);
+  border-radius: var(--style-radius-m);
+  background: color-mix(in srgb, var(--rr-tone) 10%, var(--theme-elevation-0));
+  color: var(--theme-elevation-800);
+  line-height: 1.4;
+}
+
+/* En la barra de controles, una sola línea: el texto largo va al lector de pantalla. */
+.rr-translator .rr-translator__notice {
+  gap: calc(var(--base) * 0.3);
+  padding: calc(var(--base) * 0.15) calc(var(--base) * 0.4);
+  font-size: 0.85em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.rr-translator .rr-translator__notice-text:not(:last-child)::after {
+  content: '·' / '';
+  margin-left: calc(var(--base) * 0.4);
+  color: var(--theme-elevation-500);
+}
+
+.rr-translator__notice-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.rr-translator__notice a {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rr-translator__notice-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  fill: none;
+  stroke: var(--rr-tone);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rr-translator__notice > .rr-translator__spinner {
+  width: 1rem;
+  height: 1rem;
+  color: var(--rr-tone);
+}
+
+/* Drawer como panel lateral. Payload fija el ancho de `.drawer__content` en línea
+   (`calc(100% - gutter)`), así que solo `!important` lo estrecha; el botón de cierre que
+   tiene delante crece y ocupa el resto como fondo. */
+.rr-translator-drawer .drawer__content {
+  width: min(38rem, 100%) !important;
+  flex: none;
+}
+
+.rr-translator-drawer .drawer__content-children {
+  padding: 0 calc(var(--base) * 1.5);
+}
+
+.rr-translator-drawer .drawer__header {
+  margin-top: calc(var(--base) * 1.5);
+}
+
+.rr-translator__drawer {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--base) * 1.25);
+  padding-bottom: calc(var(--base) * 2);
+  color: var(--theme-elevation-800);
+}
+
+.rr-translator__section {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rr-translator__section-title {
+  margin: 0 0 calc(var(--base) * 0.5);
+  padding: 0;
+  color: var(--theme-elevation-650);
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.rr-translator__rows {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-m);
+  background: var(--theme-elevation-0);
+}
+
+.rr-translator__row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--base) * 0.6);
+  padding: calc(var(--base) * 0.6) calc(var(--base) * 0.75);
+}
+
+.rr-translator__row + .rr-translator__row {
+  border-top: 1px solid var(--theme-elevation-150);
+}
+
+.rr-translator__checkbox {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  margin: 0.2rem 0 0;
+  accent-color: var(--theme-elevation-800);
+  cursor: pointer;
+}
+
+.rr-translator__row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.2);
+  min-width: 0;
+}
+
+.rr-translator__row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--base) * 0.4);
+}
+
+.rr-translator__row-label {
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+label.rr-translator__row-label {
+  cursor: pointer;
+}
+
+.rr-translator__row-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin: 0;
+  color: var(--theme-elevation-650);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.rr-translator__row-actions {
+  display: flex;
+  flex: none;
+  gap: calc(var(--base) * 0.3);
+  align-self: center;
+}
+
+/* Progreso indeterminado del idioma en curso, a ras del borde inferior de la fila. */
+.rr-translator__row[data-state='running']::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  height: 2px;
+  background: var(--color-blue-600);
+  animation: rr-translator-progress 1.4s ease-in-out infinite;
+}
+
+html[data-theme='dark'] .rr-translator__row[data-state='running']::after {
+  background: var(--color-blue-400);
+}
+
+@keyframes rr-translator-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+.rr-translator__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--base) * 0.25);
+  padding: 0 calc(var(--base) * 0.4);
+  border: 1px solid var(--rr-tone);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rr-tone) 12%, var(--theme-elevation-0));
+  color: var(--theme-elevation-800);
+  font-size: 0.8em;
+  font-weight: 500;
+  line-height: calc(var(--base) * 1);
+  white-space: nowrap;
+}
+
+.rr-translator__pill-dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--rr-tone);
+}
+
+.rr-translator__pill .rr-translator__spinner {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-width: 1.5px;
+  color: var(--rr-tone);
+}
+
+.rr-translator__option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--base) * 0.2) calc(var(--base) * 0.6);
+  padding: calc(var(--base) * 0.6) calc(var(--base) * 0.75);
+  border: 1px solid var(--theme-elevation-150);
+  border-radius: var(--style-radius-m);
+  background: var(--theme-elevation-0);
+}
+
+.rr-translator__option + .rr-translator__option {
+  margin-top: calc(var(--base) * 0.5);
+}
+
+.rr-translator__option-label {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rr-translator__hint {
+  grid-column: 2;
+  max-width: 65ch;
+  margin: 0;
+  color: var(--theme-elevation-650);
+  font-size: 0.85em;
+}
+
+.rr-translator__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base);
+  padding-top: var(--base);
+  border-top: 1px solid var(--theme-elevation-150);
+}
+
+.rr-translator__field-error {
+  margin: calc(var(--base) * 0.4) 0 0;
+  color: var(--theme-error-600);
+  font-weight: 600;
+}
+
+.rr-translator__field-error:empty {
+  margin: 0;
+}
+
+.rr-translator__busy-hint {
+  margin: 0;
+  color: var(--theme-elevation-650);
+}
+
+.rr-translator__footer-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--base) * 0.2);
+  min-width: 12rem;
+}
+
+.rr-translator__summary {
+  color: var(--theme-elevation-650);
+}
+
+.rr-translator__summary p {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rr-translator__spinner {
+    animation: none;
+  }
+
+  .rr-translator__row[data-state='running']::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+}

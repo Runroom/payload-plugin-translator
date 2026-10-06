@@ -1,0 +1,125 @@
+{
+  "name": "@runroom/payload-plugin-translator",
+  "version": "0.1.0",
+  "description": "Payload CMS plugin that translates localized fields of collections and globals with AI, as drafts when the entity has them, without overwriting hand-edited text.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Runroom/payload-plugin-translator.git"
+  },
+  "homepage": "https://github.com/Runroom/payload-plugin-translator#readme",
+  "bugs": {
+    "url": "https://github.com/Runroom/payload-plugin-translator/issues"
+  },
+  "author": "Runroom",
+  "type": "module",
+  "keywords": [
+    "payload",
+    "payload-plugin",
+    "payloadcms",
+    "translation",
+    "openai",
+    "i18n",
+    "localization"
+  ],
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "import": "./src/exports/client.ts",
+      "types": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
+    },
+    "./openai": {
+      "import": "./src/exports/openai.ts",
+      "types": "./src/exports/openai.ts",
+      "default": "./src/exports/openai.ts"
+    }
+  },
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "scripts": {
+    "build": "pnpm clean && pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
+    "build:types": "tsc -p tsconfig.build.json",
+    "clean": "rimraf dist \"*.tsbuildinfo\"",
+    "copyfiles": "copyfiles -u 1 \"src/**/*.css\" dist/",
+    "test": "vitest run",
+    "lint": "oxlint && oxfmt --check . && tsc --noEmit --pretty false",
+    "fix:lint": "oxlint --fix && oxfmt .",
+    "typecheck": "tsc --noEmit --pretty false",
+    "prepublishOnly": "pnpm build"
+  },
+  "peerDependencies": {
+    "@payloadcms/ui": "^3.90.2",
+    "openai": "^7",
+    "payload": "^3.90.2",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@payloadcms/ui": "3.90.2",
+    "@swc/cli": "0.8.1",
+    "@swc/core": "1.16.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.7",
+    "@types/node": "24.13.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "copyfiles": "2.4.1",
+    "jsdom": "30.0.1",
+    "openai": "7.23.0",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "payload": "3.90.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "rimraf": "6.1.3",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  },
+  "engines": {
+    "node": "^24",
+    "pnpm": ">=11"
+  },
+  "packageManager": "pnpm@11.0.6",
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
+      },
+      "./openai": {
+        "import": "./dist/exports/openai.js",
+        "types": "./dist/exports/openai.d.ts",
+        "default": "./dist/exports/openai.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  }
+}

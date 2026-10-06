@@ -1,0 +1,8 @@
+allowBuilds:
+  '@swc/core': true
+  esbuild: true
+
+# El CDN del registry de npm a veces sirve metadatos sin el campo "time"; con
+# min-release-age activo, pnpm 11.0.6 aborta entonces el install con
+# ERR_PNPM_MISSING_TIME. Este flag limita el daño a un aviso.
+minimumReleaseAgeIgnoreMissingTime: true
