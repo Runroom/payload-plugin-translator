@@ -377,6 +377,19 @@ describe('translatorPlugin onInit', () => {
     }
   })
 
+  it('stays quiet without a provider, since nothing is translated', async () => {
+    const config = await translatorPlugin({
+      collections: { events: {} },
+      provider: null,
+      access: () => true,
+    })(baseConfig())
+    const { payload, warn } = payloadWith(undefined)
+
+    await config.onInit!(payload)
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
   it('warns without autoRun at all, and an entry without queue only covers "default"', async () => {
     const config = await plugin(baseConfig())
     const none = payloadWith(undefined)

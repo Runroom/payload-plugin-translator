@@ -27,7 +27,8 @@ locales, without overwriting text someone edited by hand.
     defaults to any logged-in user).
 - **`jobs.autoRun` covering the plugin's queue** (or the external cron above). Without it,
   a job that fails with a retryable error stays queued and its retry never runs. The
-  plugin checks this in `onInit` and logs this warning when nothing processes the queue:
+  plugin checks this in `onInit` and, when a provider is configured, logs this warning if
+  nothing processes the queue:
 
   ```text
   translatorPlugin: no `jobs.autoRun` entry processes the "translations" queue. Retries of a failed translation will not run until something runs the queue again (for example `autoRun: [{ cron: '* * * * *', queue: 'translations' }]` or an external cron).
