@@ -9,9 +9,28 @@ export type LexicalState = { root: LexicalNode }
 
 export class MarkError extends Error {}
 
-const INLINE_TYPES = new Set(['text', 'link', 'autolink', 'linebreak', 'tab'])
-const VOID_TYPES = new Set(['linebreak', 'tab'])
+// `inlineBlock` va como vacío: su contenido no se traduce (se copia del origen), pero sin
+// él un párrafo `texto + bloque + texto` no contaría como contenedor y se quedaría entero
+// sin traducir.
+const INLINE_TYPES = new Set([
+  'text',
+  'link',
+  'autolink',
+  'linebreak',
+  'tab',
+  'inlineBlock',
+])
+const VOID_TYPES = new Set(['linebreak', 'tab', 'inlineBlock'])
 const TOKEN = /<(\d+)\/>|<(\d+)>|<\/(\d+)>/g
+
+// Un `<18>` o un `</2>` literales en el texto se tomarían por marcas al parsear; van como
+// entidades y el prompt pide al modelo que las conserve. Se deshace al parsear, así que
+// un `<` suelto que devuelva el modelo sin formar marca sigue siendo texto normal.
+const escapeText = (text: string): string =>
+  text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+
+const unescapeText = (text: string): string =>
+  text.replaceAll('&lt;', '<').replaceAll('&amp;', '&')
 
 export const isLexicalState = (value: unknown): value is LexicalState =>
   typeof value === 'object' &&
@@ -43,7 +62,9 @@ const serialize = (nodes: LexicalNode[], marks: LexicalNode[]): string =>
     .map(node => {
       const index = marks.push(node)
       if (isVoidNode(node)) return `<${index}/>`
-      if (node.type === 'text') return `<${index}>${node.text ?? ''}</${index}>`
+      if (node.type === 'text') {
+        return `<${index}>${escapeText(node.text ?? '')}</${index}>`
+      }
       return `<${index}>${serialize(node.children ?? [], marks)}</${index}>`
     })
     .join('')
@@ -118,11 +139,33 @@ const attributesOf = (node: LexicalNode): Summary => {
   return summary
 }
 
+const sortKeys = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sortKeys)
+  if (!isRecord(value)) return value ?? null
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map(key => [key, sortKeys(value[key])]),
+  )
+}
+
+// Los `fields` de un bloque (`block`, `inlineBlock`, `upload`) no se traducen: se copian
+// del origen, así que editarlos tiene que desactualizar el destino. Con claves ordenadas
+// para que el orden en que el admin las serialice no cuente, y sin el `id` del bloque,
+// que no es contenido.
+const blockFields = (node: LexicalNode): Summary | null => {
+  if (!isRecord(node.fields)) return null
+  const { id: _id, ...rest } = node.fields
+  return sortKeys(rest) as Summary
+}
+
 const summarize = (node: LexicalNode): Summary => {
   const summary = attributesOf(node)
   if (node.children?.length) return { ...summary, children: node.children.map(summarize) }
   if (node.type === 'text') return summary
+  // Un enlace vacío ya trae sus `fields` resumidos en `attributesOf`; pisan a estos.
   return {
+    fields: blockFields(node),
     ...summary,
     value: idOf(node.value),
     relationTo: node.relationTo ?? null,
@@ -139,8 +182,9 @@ type Frame = {
   pending: string
 }
 
-const appendText = (stack: Frame[], marks: LexicalNode[], text: string): void => {
-  if (text === '') return
+const appendText = (stack: Frame[], marks: LexicalNode[], raw: string): void => {
+  if (raw === '') return
+  const text = unescapeText(raw)
   const top = stack[stack.length - 1]!
   if (top.mark !== null && marks[top.mark - 1]?.type === 'text') {
     top.text += text

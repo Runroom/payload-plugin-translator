@@ -3,6 +3,7 @@ import type { Block, PayloadRequest } from 'payload'
 import { countChanged, countMissing } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
 import type { TranslatableValue } from '../core/types.js'
+import { docPermissions } from './docAccess.js'
 import type { Entity, EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
 import { notifyLiveWrites } from './liveWrites.js'
@@ -72,6 +73,18 @@ const staleness = ({
   return { stale: changed > 0 || missing > 0, changed, missing }
 }
 
+export const INTERRUPTED_ERROR =
+  'La traducción se interrumpió sin terminar; puedes volver a lanzarla'
+
+// Un `queued`/`running` caducado ya no bloquea nada (`isBusy`), así que para la interfaz
+// es un fallo que se puede reintentar, no un «Traduciendo…» eterno. Se decide al leer:
+// `/status` no escribe en los registros.
+const stateOf = (record: LocaleRecord): Pick<LocaleStatus, 'state' | 'error'> => {
+  const pending = record.status === 'queued' || record.status === 'running'
+  if (pending && !isBusy(record)) return { state: 'failed', error: INTERRUPTED_ERROR }
+  return { state: record.status, error: record.error ?? null }
+}
+
 const localeStatus = ({
   locale,
   record,
@@ -84,12 +97,13 @@ const localeStatus = ({
   target: Translatables | undefined
 }): LocaleStatus => {
   if (!record) return untranslated(locale)
+  const { state, error } = stateOf(record)
   return {
     locale,
-    state: record.status,
+    state,
     sourceLocale: record.sourceLocale ?? null,
     ...staleness({ record, source, target }),
-    error: record.error ?? null,
+    error,
     translatedAt: record.translatedAt ?? null,
     kept: record.kept?.length ?? 0,
   }
@@ -163,6 +177,8 @@ export const buildStatus = async ({
     findRecords(payload, ref),
   ])
   if (!doc) return null
+  // Sin derecho a leer el documento, el estado tampoco: para quien pregunta, no existe.
+  if (!(await docPermissions({ req, ref })).read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')
   const { sourceOf, targets } = await readComparisons({

@@ -22,11 +22,11 @@ const decide = ({
   previous: FieldHashes[string] | undefined
   overwriteEdited: boolean
 }): Decision => {
-  if (overwriteEdited) return 'translate'
   const ours =
     previous !== undefined && previous.output !== null && targetHash === previous.output
   if (ours && previous.source === sourceHash) return 'unchanged'
-  if (targetHash === null || ours) return 'translate'
+  // `overwriteEdited` solo rescata lo que sería `kept`: lo que está al día no se repite.
+  if (targetHash === null || ours || overwriteEdited) return 'translate'
   return 'kept'
 }
 
@@ -46,7 +46,13 @@ export const planTranslation = ({
 
   for (const value of source) {
     const sourceHash = fingerprintOf(value)
-    if (sourceHash === null) continue
+    if (sourceHash === null) {
+      // Un origen vaciado no borra lo que sabemos del destino: al rellenarlo, la
+      // traducción vieja tiene que seguir siendo nuestra y no pasar por editada a mano.
+      const kept = previous[value.path]
+      if (kept !== undefined) plan.hashes[value.path] = kept
+      continue
+    }
     const targetValue = targetByPath.get(value.path)
     const targetHash = targetValue ? fingerprintOf(targetValue) : null
     const before = previous[value.path]

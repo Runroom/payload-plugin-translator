@@ -72,3 +72,28 @@ describe('translateTask', () => {
     ).toBe('collection')
   })
 })
+
+describe('translateTask concurrency', () => {
+  it('keys jobs by entity so two jobs of the same document never run at once', () => {
+    const { concurrency } = translateTask(settings) as unknown as {
+      concurrency: {
+        exclusive: boolean
+        key: (args: { input: Record<string, unknown>; queue: string }) => string
+      }
+    }
+    const keyOf = (input: Record<string, unknown>): string =>
+      concurrency.key({ input, queue: 'translations' })
+
+    expect(concurrency.exclusive).toBe(true)
+    expect(
+      keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e1' }),
+    ).toBe('collection:events:e1')
+    expect(keyOf({ collectionSlug: 'events', docId: 'e1' })).toBe('collection:events:e1')
+    expect(
+      keyOf({ entityType: 'global', collectionSlug: 'footer', docId: 'global' }),
+    ).toBe('global:footer:global')
+    expect(
+      keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e2' }),
+    ).not.toBe(keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e1' }))
+  })
+})

@@ -20,7 +20,24 @@ export type Entity = {
   writesLive: boolean
   read: (args: ReadArgs) => Promise<Doc>
   find: (args: { locale: string }) => Promise<Doc | null>
-  write: (args: { locale: string; data: Doc }) => Promise<void>
+  // Devuelve el documento tal como quedó guardado: un hook `beforeChange` puede
+  // reescribir lo que se mandó (un `formatSlug`), y las huellas tienen que ser de eso.
+  write: (args: { locale: string; data: Doc }) => Promise<Doc>
+}
+
+// Un id que el adaptador no puede ni interpretar (no UUID en Postgres, no ObjectID en
+// Mongo) no es un error del servidor: el documento no existe. SQLite guarda el id como
+// texto y ya responde «no encontrado» por sí mismo.
+const INVALID_ID_CODES = new Set(['22P02'])
+
+const isInvalidId = (error: unknown): boolean => {
+  const failure = error as { code?: unknown; name?: unknown; cause?: unknown } | null
+  if (!failure || typeof failure !== 'object') return false
+  return (
+    (typeof failure.code === 'string' && INVALID_ID_CODES.has(failure.code)) ||
+    failure.name === 'CastError' ||
+    (failure.cause !== undefined && isInvalidId(failure.cause))
+  )
 }
 
 type EntityConfig = { fields: Field[]; versions?: unknown }
@@ -62,18 +79,24 @@ const collectionEntity = (
     writesLive: !drafts,
     read: async ({ locale, withFallback }) =>
       (await findByID({ locale, ...fallbackOption(withFallback) })) as Doc,
-    find: async ({ locale }) =>
-      (await findByID({ locale, disableErrors: true })) as Doc | null,
-    write: async ({ locale, data }) => {
-      await payload.update({
+    find: async ({ locale }) => {
+      try {
+        return (await findByID({ locale, disableErrors: true })) as Doc | null
+      } catch (error) {
+        if (isInvalidId(error)) return null
+        throw error
+      }
+    },
+    write: async ({ locale, data }) =>
+      (await payload.update({
         collection: collectionSlug as never,
         id: docId,
         locale: locale as never,
         ...draftOption(drafts),
+        depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      })
-    },
+      })) as unknown as Doc,
   }
 }
 
@@ -100,16 +123,15 @@ const globalEntity = (
     read: ({ locale, withFallback }) =>
       findGlobal({ locale, ...fallbackOption(withFallback) }),
     find: ({ locale }) => findGlobal({ locale }),
-    write: async ({ locale, data }) => {
-      await payload.updateGlobal({
+    write: async ({ locale, data }) =>
+      (await payload.updateGlobal({
         slug: slug as never,
         locale: locale as never,
         ...draftOption(drafts),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      } as never)
-    },
+      } as never)) as unknown as Doc,
   }
 }
 

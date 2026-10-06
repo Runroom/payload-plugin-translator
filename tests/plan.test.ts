@@ -399,14 +399,54 @@ describe('fingerprintOf a richText', () => {
 })
 
 describe('planTranslation with overwriteEdited', () => {
-  it('translates again a field whose source and output are unchanged', () => {
+  it('translates again a field that would otherwise be kept as edited by hand', () => {
     const plan = planTranslation({
       source: [field('title', 'Curso')],
-      target: [field('title', 'Course')],
-      previous: { title: { source: hashOf('Curso'), output: hashOf('Course') } },
+      target: [field('title', 'Curs corregit')],
+      previous: { title: { source: hashOf('Curso'), output: hashOf('Curs') } },
       overwriteEdited: true,
     })
 
     expect(plan.translate.map(value => value.path)).toEqual(['title'])
+    expect(plan.kept).toEqual([])
+  })
+
+  it('leaves alone a field whose source and output are unchanged', () => {
+    const previous = { title: { source: hashOf('Curso'), output: hashOf('Course') } }
+    const plan = planTranslation({
+      source: [field('title', 'Curso')],
+      target: [field('title', 'Course')],
+      previous,
+      overwriteEdited: true,
+    })
+
+    expect(plan.translate).toEqual([])
+    expect(plan.hashes).toEqual(previous)
+  })
+})
+
+describe('planTranslation when the source is emptied and filled again', () => {
+  it('keeps the old translation as its own, so the refilled source is translated again', () => {
+    const translated = {
+      title: { source: hashOf('Curso'), output: hashOf('[ca] Curso') },
+    }
+
+    const emptied = planTranslation({
+      source: [field('title', '')],
+      target: [field('title', '[ca] Curso')],
+      previous: translated,
+      overwriteEdited: false,
+    })
+    expect(emptied.translate).toEqual([])
+    expect(emptied.hashes).toEqual(translated)
+
+    const refilled = planTranslation({
+      source: [field('title', 'Curso nuevo')],
+      target: [field('title', '[ca] Curso')],
+      previous: emptied.hashes,
+      overwriteEdited: false,
+    })
+    expect(refilled.translate.map(value => value.path)).toEqual(['title'])
+    expect(refilled.kept).toEqual([])
   })
 })

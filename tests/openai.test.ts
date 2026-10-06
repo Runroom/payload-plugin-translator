@@ -216,3 +216,42 @@ describe('openAIProvider', () => {
     expect((error as ProviderError).message).toContain('No puedo ayudar con eso.')
   })
 })
+
+describe('openAIProvider and escaped text', () => {
+  it('tells the model to keep the &lt; and &amp; entities untouched', async () => {
+    const client = clientReturning(JSON.stringify({ u0: 'Curs', u1: '<1>Hola</1>' }))
+    const provider = openAIProvider({ apiKey: 'k', model: 'm', client })
+
+    await provider.translate(request)
+
+    const args = client.responses.create.mock.calls[0]![0]
+    expect(args.instructions).toContain('&lt;')
+    expect(args.instructions).toContain('&amp;')
+  })
+
+  it('does not retry a 429 caused by an exhausted quota', async () => {
+    const quota = Object.assign(new Error('You exceeded your current quota'), {
+      status: 429,
+      code: 'insufficient_quota',
+    })
+    const rateLimit = Object.assign(new Error('Rate limit reached'), {
+      status: 429,
+      code: 'rate_limit_exceeded',
+    })
+    const failingWith = (error: Error): ReturnType<typeof openAIProvider> =>
+      openAIProvider({
+        apiKey: 'k',
+        model: 'm',
+        client: { responses: { create: vi.fn<Create>().mockRejectedValue(error) } },
+      })
+
+    await expect(failingWith(quota).translate(request)).rejects.toMatchObject({
+      name: 'ProviderError',
+      retryable: false,
+    })
+    await expect(failingWith(rateLimit).translate(request)).rejects.toMatchObject({
+      name: 'ProviderError',
+      retryable: true,
+    })
+  })
+})

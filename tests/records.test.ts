@@ -116,3 +116,21 @@ describe('records of a global', () => {
     })
   })
 })
+
+describe('records collection access', () => {
+  const access = vi.fn().mockResolvedValue(true)
+  const collection = recordsCollection(access)
+  const req = { user: { id: 'u1' } } as never
+  type AccessFn = (args: { req: never }) => boolean | Promise<boolean>
+
+  it('lets the plugin access function decide who reads', async () => {
+    expect(await (collection.access!.read as AccessFn)({ req })).toBe(true)
+    expect(access).toHaveBeenCalledWith({ req, operation: 'status' })
+  })
+
+  it('never lets REST create, update or delete a record', async () => {
+    for (const operation of ['create', 'update', 'delete'] as const) {
+      expect(await (collection.access![operation] as AccessFn)({ req })).toBe(false)
+    }
+  })
+})

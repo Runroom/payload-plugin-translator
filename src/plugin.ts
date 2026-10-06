@@ -4,6 +4,7 @@ import type {
   Config,
   Field,
   GlobalConfig,
+  Payload,
   Plugin,
 } from 'payload'
 
@@ -23,7 +24,9 @@ import { translateTask } from './server/task.js'
 
 const CONTROL_COMPONENT = '@runroom/payload-plugin-translator/client#TranslateControl'
 
-type EntityOptions = Record<string, { locales?: string[] }>
+export type TranslatorEntityOptions = { locales?: string[] }
+
+type EntityOptions = Record<string, TranslatorEntityOptions>
 
 export type TranslatorPluginOptions = {
   collections: EntityOptions
@@ -192,18 +195,47 @@ const withGlobalControl = ({
   }
 }
 
+type Translations = Record<string, Record<string, unknown>>
+
+// Las del proyecto ganan: así puede retocar un texto del drawer sin perder los demás.
+const mergeLanguage = (
+  current: Record<string, unknown> | undefined,
+  ours: { translator: Record<string, string> },
+): Record<string, unknown> => ({
+  ...current,
+  translator: {
+    ...ours.translator,
+    ...(current?.translator as Record<string, unknown> | undefined),
+  },
+})
+
 const mergeTranslations = (
   config: Config,
 ): NonNullable<Config['i18n']>['translations'] => {
-  const current = (config.i18n?.translations ?? {}) as Record<
-    string,
-    Record<string, unknown>
-  >
+  const current = (config.i18n?.translations ?? {}) as Translations
   return {
     ...current,
-    es: { ...current.es, ...translatorTranslations.es },
-    en: { ...current.en, ...translatorTranslations.en },
+    es: mergeLanguage(current.es, translatorTranslations.es),
+    en: mergeLanguage(current.en, translatorTranslations.en),
   } as NonNullable<Config['i18n']>['translations']
+}
+
+const schedulesQueue = async (payload: Payload, queue: string): Promise<boolean> => {
+  const autoRun = payload.config.jobs.autoRun
+  const entries = typeof autoRun === 'function' ? await autoRun(payload) : (autoRun ?? [])
+  return entries.some(
+    entry => entry.allQueues === true || (entry.queue ?? 'default') === queue,
+  )
+}
+
+// Un error reintentable deja el job esperando su `waitUntil` y el registro en `queued`;
+// sin nadie que vuelva a lanzar la cola, ese reintento no llega nunca. Solo se avisa:
+// en E2E o en serverless puede ser deliberado.
+const warnIfQueueUnscheduled = async (payload: Payload, queue: string): Promise<void> => {
+  if (await schedulesQueue(payload, queue)) return
+  payload.logger.warn(
+    `translatorPlugin: ninguna entrada de \`jobs.autoRun\` procesa la cola "${queue}". Los reintentos de una traducción fallida no se ejecutarán hasta que algo vuelva a lanzar la cola (por ejemplo \`autoRun: [{ cron: '* * * * *', queue: '${queue}' }]\` o un cron externo).`,
+  )
 }
 
 export const translatorPlugin =
@@ -212,6 +244,10 @@ export const translatorPlugin =
     const settings = resolveSettings(options, config)
     return {
       ...config,
+      onInit: async payload => {
+        await config.onInit?.(payload)
+        await warnIfQueueUnscheduled(payload, settings.queue)
+      },
       collections: [
         ...(config.collections ?? []).map(collection =>
           settings.collections[collection.slug]
@@ -228,6 +264,10 @@ export const translatorPlugin =
       endpoints: [...(config.endpoints ?? []), ...translatorEndpoints(settings)],
       jobs: {
         ...config.jobs,
+        // La clave de concurrencia de la tarea solo cuenta con esto activo; añade la
+        // columna indexada `concurrencyKey` a la colección de jobs (migración en el
+        // proyecto). Se respeta un `false` explícito del proyecto.
+        enableConcurrencyControl: config.jobs?.enableConcurrencyControl ?? true,
         tasks: [...(config.jobs?.tasks ?? []), translateTask(settings)],
       },
       i18n: { ...config.i18n, translations: mergeTranslations(config) },

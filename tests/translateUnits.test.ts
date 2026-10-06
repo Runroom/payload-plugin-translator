@@ -210,3 +210,51 @@ describe('translateUnits', () => {
     expect(result.get('u')).toBe('<1> <2>[ca] x</2></1>')
   })
 })
+
+// El modelo quita el `<2>` literal del texto plano y respeta la marca del richText.
+const strippingLiteralMarks = (units: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(units).map(([key, value]) => [
+      key,
+      value.startsWith('<1>') ? value : value.replace(/<\d+>/, ''),
+    ]),
+  )
+
+const unmarked = (units: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.keys(units).map(key => [key, 'sin marcas']))
+
+describe('translateUnits and literal marks in plain text', () => {
+  it('checks marks only on the units it is told carry them', async () => {
+    const translate = vi.fn(async ({ units }: { units: Record<string, string> }) =>
+      strippingLiteralMarks(units),
+    )
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([
+        ['title', 'Edad <2> años'],
+        ['body#0', '<1>hola</1>'],
+      ]),
+      withMarks: id => id.includes('#'),
+    })
+
+    expect(result.get('title')).toBe('Edad  años')
+    expect(translate).toHaveBeenCalledTimes(1)
+  })
+
+  it('still rejects a rich text unit whose marks the model broke', async () => {
+    const translate = vi.fn(async ({ units }: { units: Record<string, string> }) =>
+      unmarked(units),
+    )
+
+    await expect(
+      translateUnits({
+        ...base,
+        provider: { translate },
+        units: new Map([['body#0', '<1>hola</1>']]),
+        withMarks: id => id.includes('#'),
+      }),
+    ).rejects.toBeInstanceOf(MarkError)
+  })
+})

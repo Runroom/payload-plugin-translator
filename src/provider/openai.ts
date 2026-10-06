@@ -38,6 +38,7 @@ const systemPrompt = ({
     `Translate every value of the JSON object from ${languageName(sourceLocale)} to ${languageName(targetLocale)}.`,
     'Return a JSON object with exactly the same keys.',
     'Values may contain numbered tags such as <1>…</1> or <2/>. Keep every tag exactly once and unchanged, never translate them, and move them only as far as the target grammar requires.',
+    'Values may contain the entities &lt; and &amp;. Keep them exactly as they are: never turn them into < or &, and never add new entities.',
     'Do not add explanations.',
     instructions,
   ]
@@ -51,13 +52,19 @@ const schemaFor = (keys: string[]): Record<string, unknown> => ({
   additionalProperties: false,
 })
 
+// Un 429 por cuota agotada (`insufficient_quota`) no se arregla esperando: es facturación,
+// no límite de ritmo.
+const isQuotaExhausted = (error: { code?: unknown; error?: unknown }): boolean =>
+  error.code === 'insufficient_quota' ||
+  (error.error as { code?: unknown } | null | undefined)?.code === 'insufficient_quota'
+
 const toProviderError = (error: unknown): ProviderError => {
-  const status = (error as { status?: unknown } | null | undefined)?.status
+  const failure = (error ?? {}) as { status?: unknown; code?: unknown; error?: unknown }
   const message = error instanceof Error ? error.message : String(error)
-  return new ProviderError(
-    `OpenAI: ${message}`,
-    !(typeof status === 'number' && NOT_RETRYABLE.has(status)),
-  )
+  const retryable =
+    !(typeof failure.status === 'number' && NOT_RETRYABLE.has(failure.status)) &&
+    !isQuotaExhausted(failure)
+  return new ProviderError(`OpenAI: ${message}`, retryable)
 }
 
 const refusalOf = (response: CreateResult): string | undefined =>

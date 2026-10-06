@@ -7,6 +7,7 @@ import {
   MarkError,
   marksMatch,
   replaceContainers,
+  structureOf,
 } from '../src/core/lexical.js'
 
 const text = (value: string, format = 0): LexicalNode => ({
@@ -363,5 +364,103 @@ describe('marksMatch and replaceContainers agree', () => {
         expect(marksMatch(paragraphSource, translated), translated).toBe(false)
       }
     }
+  })
+})
+
+describe('literal marks and ampersands in the text', () => {
+  const paragraph = (...children: LexicalNode[]): LexicalState => ({
+    root: { type: 'root', children: [{ type: 'paragraph', children }] },
+  })
+
+  it.each([
+    'Edad <18> años',
+    'Cierra con </2>',
+    'Vacío <3/> aquí',
+    'Ya escapado &lt;',
+    'Tom & Jerry',
+  ])('escapes %j when serialising and restores it when parsing', value => {
+    const source = paragraph(text(value))
+    const [unit] = extractContainers(source)
+
+    expect(unit).not.toMatch(/<\d+>.*<\d+\/?>|<\/\d+>.*<\/\d+>/)
+    expect(marksMatch(unit!, unit!)).toBe(true)
+    expect(replaceContainers(source, [unit!])).toEqual(source)
+  })
+
+  it('keeps a stray < the model returns without forming a mark as plain text', () => {
+    const source = paragraph(text('a'))
+
+    const result = replaceContainers(source, ['<1>b < c</1>'])
+
+    expect(result.root.children?.[0]?.children?.[0]).toMatchObject({ text: 'b < c' })
+  })
+
+  it('does not take a translated entity for a mark', () => {
+    const source = paragraph(text('Edad <18> años'))
+    const [unit] = extractContainers(source)
+
+    expect(unit).toBe('<1>Edad &lt;18> años</1>')
+    expect(marksMatch(unit!, '<1>Age &lt;18> years</1>')).toBe(true)
+    expect(
+      replaceContainers(source, ['<1>Age &lt;18> years</1>']).root.children?.[0]
+        ?.children?.[0],
+    ).toMatchObject({ text: 'Age <18> years' })
+  })
+})
+
+describe('blocks inside lexical', () => {
+  const inlineBlock = (fields: Record<string, unknown>): LexicalNode => ({
+    type: 'inlineBlock',
+    fields,
+    version: 1,
+  })
+  const withInline = (fields: Record<string, unknown>): LexicalState => ({
+    root: {
+      type: 'root',
+      children: [
+        {
+          type: 'paragraph',
+          children: [text('Antes '), inlineBlock(fields), text(' después')],
+        },
+      ],
+    },
+  })
+  const block = (fields: Record<string, unknown>): LexicalState => ({
+    root: {
+      type: 'root',
+      children: [
+        { type: 'block', fields, format: '', version: 2 },
+        { type: 'paragraph', children: [text('Hola')] },
+      ],
+    },
+  })
+
+  it('translates the text around an inline block, copying the block from the source', () => {
+    const fields = { id: 'b1', blockType: 'badge', label: 'Nuevo' }
+    const source = withInline(fields)
+
+    expect(extractContainers(source)).toEqual(['<1>Antes </1><2/><3> después</3>'])
+    const result = replaceContainers(source, ['<1>Before </1><2/><3> after</3>'])
+    expect(result.root.children?.[0]?.children).toMatchObject([
+      { type: 'text', text: 'Before ' },
+      { type: 'inlineBlock', fields },
+      { type: 'text', text: ' after' },
+    ])
+  })
+
+  it('changes the structure fingerprint when block fields change, not when their id or key order does', () => {
+    const base = structureOf(
+      block({ id: 'b1', blockType: 'cta', url: '/a', label: 'Ir' }),
+    )
+
+    expect(
+      structureOf(block({ id: 'b1', blockType: 'cta', url: '/b', label: 'Ir' })),
+    ).not.toEqual(base)
+    expect(
+      structureOf(block({ label: 'Ir', url: '/a', blockType: 'cta', id: 'b2' })),
+    ).toEqual(base)
+    expect(
+      structureOf(withInline({ id: 'x', blockType: 'badge', label: 'A' })),
+    ).not.toEqual(structureOf(withInline({ id: 'x', blockType: 'badge', label: 'B' })))
   })
 })

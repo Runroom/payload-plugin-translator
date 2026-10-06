@@ -184,10 +184,21 @@ export const collectTranslatables = ({
 
 const CONTAINER_TYPES = new Set(['array', 'blocks', 'group'])
 
-const childFieldsOf = (field: Field, configBlocks: Block[]): Field[] => {
+// Un bloque puede referenciarse a sí mismo por `blockReferences`; cada uno se recorre una
+// sola vez o la búsqueda no termina.
+const childFieldsOf = (
+  field: Field,
+  configBlocks: Block[],
+  visited: Set<Block>,
+): Field[] => {
   if (field.type === 'tabs') return field.tabs.flatMap(tab => tab.fields)
-  if (field.type === 'blocks')
-    return blocksOf(field, configBlocks).flatMap(block => block.fields)
+  if (field.type === 'blocks') {
+    return blocksOf(field, configBlocks).flatMap(block => {
+      if (visited.has(block)) return []
+      visited.add(block)
+      return block.fields
+    })
+  }
   if ('fields' in field && Array.isArray(field.fields)) return field.fields
   return []
 }
@@ -209,8 +220,9 @@ const ownContainerName = (field: Field): string[] => {
 export const findLocalizedContainers = (
   fields: Field[],
   blocks: Block[] = [],
+  visited: Set<Block> = new Set(),
 ): string[] =>
   fields.flatMap(field => [
     ...ownContainerName(field),
-    ...findLocalizedContainers(childFieldsOf(field, blocks), blocks),
+    ...findLocalizedContainers(childFieldsOf(field, blocks, visited), blocks, visited),
   ])

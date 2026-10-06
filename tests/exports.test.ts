@@ -50,3 +50,10 @@ describe('package entry points', () => {
     expect(manifest.publishConfig.exports).toHaveProperty('./openai')
   })
 })
+
+describe('root entry', () => {
+  it('exposes the records slug and the task slug for migrations and cron setups', () => {
+    expect(root.RECORDS_SLUG).toBe('translation-records')
+    expect(root.TRANSLATE_TASK_SLUG).toBe('translateDocument')
+  })
+})

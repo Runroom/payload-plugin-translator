@@ -21,17 +21,21 @@ export type TranslationRecord = {
   updatedAt: string
 }
 
+// Solo escribe el plugin, por la Local API, que no pasa por `access`: por REST nadie puede
+// crear, tocar ni borrar un registro (sería saltarse el bloqueo o falsear las huellas).
+const DENY = (): boolean => false
+
 export const recordsCollection = (access: TranslatorAccess): CollectionConfig => {
   const allowed = ({
     req,
   }: {
     req: Parameters<TranslatorAccess>[0]['req']
-  }): Promise<boolean> => Promise.resolve(access({ req }))
+  }): Promise<boolean> => Promise.resolve(access({ req, operation: 'status' }))
   return {
     slug: RECORDS_SLUG,
     labels: { singular: 'Registro de traducción', plural: 'Registros de traducción' },
     admin: { hidden: true },
-    access: { read: allowed, create: allowed, update: allowed, delete: allowed },
+    access: { read: allowed, create: DENY, update: DENY, delete: DENY },
     indexes: [
       { fields: ['entityType', 'collectionSlug', 'docId', 'targetLocale'], unique: true },
     ],

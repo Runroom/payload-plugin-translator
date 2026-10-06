@@ -10,6 +10,9 @@ type Args = {
   sourceLocale: string
   targetLocale: string
   instructions: string
+  // Qué unidades llevan marcas (las de `richText`); un `<2>` literal en un campo `text`
+  // no es formato y no puede hacer fallar la comprobación. Por defecto, todas.
+  withMarks?: (id: string) => boolean
   onBatch?: () => Promise<void>
 }
 
@@ -61,22 +64,23 @@ const translateAll = async (
 }
 
 const brokenIn = (
+  { withMarks = (): boolean => true }: Args,
   units: Map<string, string>,
   result: Map<string, string>,
 ): [string, string][] =>
   [...units].filter(([id, source]) => {
     const text = result.get(id)
-    return text === undefined || !marksMatch(source, text)
+    return text === undefined || (withMarks(id) && !marksMatch(source, text))
   })
 
 export const translateUnits = async (args: Args): Promise<Map<string, string>> => {
   const result = await translateAll(args, [...args.units])
-  const broken = brokenIn(args.units, result)
+  const broken = brokenIn(args, args.units, result)
   if (broken.length === 0) return result
 
   const retried = await translateAll(args, broken)
   for (const [id, text] of retried) result.set(id, text)
-  const stillBroken = brokenIn(new Map(broken), result)
+  const stillBroken = brokenIn(args, new Map(broken), result)
   if (stillBroken.length > 0) {
     throw new MarkError(
       `La traducción rompió el formato de: ${stillBroken.map(([id]) => id).join(', ')}`,
