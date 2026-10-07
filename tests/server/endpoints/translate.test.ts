@@ -1,7 +1,6 @@
-import { docAccessOperation } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
 
-import { settings, endpoint, request, recent } from './helpers.js'
+import { settings, endpoint, request, recent, requester } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -68,7 +67,7 @@ describe('POST /translator/translate', () => {
         sourceLocale: 'es',
         targetLocales: ['ca', 'en'],
         overwriteEdited: false,
-        fieldPermissions: true,
+        requester,
       },
     })
     expect(run).toHaveBeenCalledWith({
@@ -82,25 +81,29 @@ describe('POST /translator/translate', () => {
     ])
   })
 
-  it('queues the request user’s field permissions from the document access result', async () => {
-    const fields = { title: { read: true, update: true } }
-    vi.mocked(docAccessOperation).mockResolvedValueOnce({
-      fields,
-      read: true,
-      update: true,
-    } as never)
+  it('queues the requester’s identity, not their permissions, for the job', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      user: { id: 'u7', collection: 'editors' },
     })
 
     await endpoint(settings(), '/translator/translate')(req)
 
-    expect(docAccessOperation).toHaveBeenCalledTimes(1)
-    expect(queue).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input: expect.objectContaining({ fieldPermissions: fields }),
-      }),
-    )
+    const { input } = queue.mock.calls[0]![0]
+    expect(input.requester).toEqual({ id: 'u7', collection: 'editors' })
+    expect(input).not.toHaveProperty('fieldPermissions')
+  })
+
+  it('refuses a request without a user even when the access function allows it', async () => {
+    const { req, queue } = request({
+      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      user: null,
+    })
+
+    const response = await endpoint(settings(), '/translator/translate')(req)
+
+    expect(response.status).toBe(403)
+    expect(queue).not.toHaveBeenCalled()
   })
 
   it('answers 409 when another locale of the same document is busy', async () => {

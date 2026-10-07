@@ -164,8 +164,9 @@ export const buildStatus = async ({
     findRecords(payload, ref),
   ])
   if (!doc) return null
-  // A requester who cannot read the document gets no status, as if it did not exist.
-  const permissions = await docPermissions({ req, ref })
+  // A requester who cannot read the document gets no status, as if it did not exist. The
+  // comparisons below read the default locale, so access is checked there too.
+  const permissions = await docPermissions({ req, ref, locale: defaultLocale })
   if (!permissions.read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')

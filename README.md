@@ -157,10 +157,11 @@ Two layers decide who can translate a document:
    control, so put every check you need here (a role, a second factor…). When it returns
    `false` the endpoints answer 403.
 2. **The document's own access**, evaluated with the request's user exactly as the admin
-   does (`docAccessOperation`, including `access` functions that return a `where`):
-   without **read** permission the document does not exist for the requester (404 on both
-   endpoints); without **update** permission `POST /translate` answers 403, since
-   translating writes to the document (and, without drafts, publishes it).
+   does (`docAccessOperation`, including `access` functions that return a `where`), in the
+   locales involved: **read** in the source locale and **update** in every target locale.
+   Without read permission the document does not exist for the requester (404 on both
+   endpoints); without update permission on any target `POST /translate` answers 403,
+   since translating writes to the document there (and, without drafts, publishes it).
 
 The `translation-records` collection is hidden in the admin and **closed over REST and
 GraphQL**: `read`, `create`, `update` and `delete` are always denied. A record names a
@@ -168,11 +169,19 @@ document and keeps its errors, so reading it goes through `GET /status`, which c
 the plugin's `access` and the document's own. Only the plugin, through the Local API,
 reads and writes it.
 
-The job writes through the **Local API with its default `overrideAccess`** and **without a
-user**, because it runs outside the request that queued it; the permission checks above
-happen before queueing. The requesting user's field-level **read and update** permissions
-are snapshotted when the job is queued; fields missing either permission are not sent to
-the provider, written, or counted in status, and their previous fingerprints are kept.
+The job **runs as the requester**: it stores who asked, loads that user again on every
+attempt and reads and writes the document through the Local API with
+`overrideAccess: false` and that user. The checks above are repeated when the job runs,
+per locale (read on the source locale, update on each target locale), so access rules that
+depend on `req.locale`, on the user or on the document are honoured as they stand at that
+moment, not as they stood when the job was queued. A user who loses access, or is deleted,
+before the job runs gets the locale marked `failed` with "Access denied" (or "The user who
+requested the translation no longer exists") and nothing is sent to the provider. Field
+access is applied by Payload on the real data: a field the requester may not read in the
+source locale is never sent to the provider, and a field they may not update in the target
+locale (a row-level rule on `siblingData` or `blockData`, for instance) keeps its value
+and is listed as kept, without failing the run. Fields missing either permission at the
+schema level are not counted in status either, and their previous fingerprints are kept.
 Every write it makes to your documents carries its own request `context`
 (`TRANSLATOR_WRITE_CONTEXT`); use `isTranslatorWrite(context)` in your hooks to tell its
 writes apart, for example to skip revalidating the public site on a draft write, or to
@@ -199,11 +208,11 @@ The checks run in this order:
 | Status | Body                                                    | When                                                                                                                                       |
 | ------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 400    | `{ "error": "bad-request" }`                            | The body is not JSON or lacks `collection` + `id` (or `global`), `sourceLocale` or the `targetLocales` array. Checked before `access`.     |
-| 403    | `{ "error": "forbidden" }`                              | The plugin's `access` denies it.                                                                                                           |
+| 403    | `{ "error": "forbidden" }`                              | The plugin's `access` denies it, or the request has no user.                                                                               |
 | 503    | `{ "error": "not-configured" }`                         | `provider` is `null`.                                                                                                                      |
 | 400    | `{ "error": "bad-request" }`                            | The collection is not configured, `sourceLocale` is not one of the entity's locales, or no target is a valid locale other than the source. |
-| 404    | `{ "error": "not-found" }`                              | The global is not configured, the document or global does not exist, or the user cannot read it.                                           |
-| 403    | `{ "error": "forbidden" }`                              | The user cannot update the document or global.                                                                                             |
+| 404    | `{ "error": "not-found" }`                              | The global is not configured, the document or global does not exist, or the user cannot read it in the source locale.                      |
+| 403    | `{ "error": "forbidden" }`                              | The user cannot update the document or global in one of the target locales.                                                                |
 | 409    | `{ "error": "busy", "busy": ["es"] }`                   | A locale of the document is already queued or translating. The lock is per document, not per locale.                                       |
 | 500    | `{ "error": "records-failed", "queued": ["es", "ca"] }` | The job was queued and started, but the records could not be set to `queued`, so the document may not show as locked.                      |
 | 202    | `{ "queued": ["es", "ca"] }`                            | The job was queued and started.                                                                                                            |

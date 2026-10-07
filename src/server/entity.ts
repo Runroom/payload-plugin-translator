@@ -1,4 +1,4 @@
-import type { Field, Payload } from 'payload'
+import type { Field, Payload, TypedUser } from 'payload'
 
 import { TRANSLATOR_WRITE_CONTEXT } from '../context.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
@@ -71,9 +71,21 @@ const updatedAtOf = (result: unknown): string | null => {
 const fallbackOption = (withFallback: boolean): { fallbackLocale?: false } =>
   withFallback ? {} : { fallbackLocale: false }
 
+/** Who the entity is read and written as; without a user, with the Local API's default access. */
+export type EntityOptions = { user?: TypedUser }
+
+// With a user, Payload applies the collection, field and row access rules of that user to
+// what is read (and so sent to the provider) and written. The plugin's own lookups (the
+// existence check, the versions) keep the default access.
+const accessOption = (
+  user: TypedUser | undefined,
+): { overrideAccess?: false; user?: TypedUser } =>
+  user ? { overrideAccess: false, user } : {}
+
 const collectionEntity = (
   payload: Payload,
   { collectionSlug, docId }: EntityRef,
+  { user }: EntityOptions,
 ): Entity | null => {
   const registered = payload.collections as unknown as Record<
     string,
@@ -94,7 +106,11 @@ const collectionEntity = (
     fields: config.fields,
     writesLive: !drafts,
     read: async ({ locale, withFallback }) =>
-      (await findByID({ locale, ...fallbackOption(withFallback) })) as Doc,
+      (await findByID({
+        locale,
+        ...fallbackOption(withFallback),
+        ...accessOption(user),
+      })) as Doc,
     find: async ({ locale }) => {
       try {
         return (await findByID({ locale, disableErrors: true })) as Doc | null
@@ -109,6 +125,7 @@ const collectionEntity = (
         id: docId,
         locale: locale as never,
         ...draftOption(drafts),
+        ...accessOption(user),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
@@ -129,6 +146,7 @@ const collectionEntity = (
 const globalEntity = (
   payload: Payload,
   { collectionSlug: slug }: EntityRef,
+  { user }: EntityOptions,
 ): Entity | null => {
   const configs = (
     payload.globals as unknown as { config: (EntityConfig & { slug: string })[] }
@@ -147,13 +165,14 @@ const globalEntity = (
     fields: config.fields,
     writesLive: !drafts,
     read: ({ locale, withFallback }) =>
-      findGlobal({ locale, ...fallbackOption(withFallback) }),
+      findGlobal({ locale, ...fallbackOption(withFallback), ...accessOption(user) }),
     find: ({ locale }) => findGlobal({ locale }),
     write: async ({ locale, data }) =>
       (await payload.updateGlobal({
         slug: slug as never,
         locale: locale as never,
         ...draftOption(drafts),
+        ...accessOption(user),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
@@ -177,10 +196,14 @@ export const defaultLocaleOf = (payload: Payload): string => {
 }
 
 // `null` when the collection or the global is not registered in Payload.
-export const entityOf = (payload: Payload, ref: EntityRef): Entity | null =>
+export const entityOf = (
+  payload: Payload,
+  ref: EntityRef,
+  options: EntityOptions = {},
+): Entity | null =>
   ref.entityType === 'global'
-    ? globalEntity(payload, ref)
-    : collectionEntity(payload, ref)
+    ? globalEntity(payload, ref, options)
+    : collectionEntity(payload, ref, options)
 
 // The source is the locale open in the admin; the targets are the requested locales of
 // the entity other than the source.

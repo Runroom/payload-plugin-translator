@@ -20,6 +20,12 @@ import {
   statefulPayload,
 } from './helpers.js'
 
+// The job checks the requester's document access through Payload, which reads the
+// database; here every requester may translate every field unless a test says otherwise.
+vi.mock('../../../src/server/docAccess.js', () => ({
+  requesterPermissions: vi.fn(async () => true),
+}))
+
 describe('runTranslation with several target locales', () => {
   it('writes each locale only after the previous write has finished', async () => {
     const { payload, update } = fakePayload({ docs: { ...bothLocales } })

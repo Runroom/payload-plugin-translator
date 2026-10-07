@@ -1,10 +1,11 @@
-import type { Endpoint, PayloadRequest, SanitizedFieldsPermissions } from 'payload'
+import type { Endpoint, PayloadRequest } from 'payload'
 
 import type { TranslateQueuedBody, TranslatorErrorBody } from '../shared/api.js'
 import { STATUS_PATH, TRANSLATE_PATH } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
 import { entityOf, GLOBAL_DOC_ID, localesOf, targetLocalesOf } from './entity.js'
+import type { Requester } from './localeRun.js'
 import { findRecords, saveRecord } from './records.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
 import { buildStatus, isBusy } from './status.js'
@@ -59,13 +60,13 @@ const queueTranslations = async ({
   settings,
   body,
   targets,
-  fieldPermissions,
+  requester,
 }: {
   req: PayloadRequest
   settings: TranslatorSettings
   body: TranslateBody
   targets: string[]
-  fieldPermissions: SanitizedFieldsPermissions
+  requester: Requester
 }): Promise<{ recordsSaved: boolean }> => {
   // Queue the job before writing the records: a `queued` record without a job would lock
   // the document with 409 until it expires.
@@ -77,7 +78,7 @@ const queueTranslations = async ({
       sourceLocale: body.sourceLocale,
       targetLocales: targets,
       overwriteEdited: body.overwriteEdited,
-      fieldPermissions,
+      requester,
     } as never,
   })) as unknown as { id: string | number }
   // If saving the records fails, the job already exists and is still run: it sets the
@@ -154,23 +155,35 @@ const resolveTargets = (
   return targetsOf(body, config) ?? fail({ error: 'bad-request' }, 400)
 }
 
-// Without read access the document does not exist for the requester (404). Without update
-// access the request is denied (403), since translating writes to the document and, without
-// drafts, publishes it. Otherwise returns the requester's field permissions for the job.
+// Without read access in the source locale the document does not exist for the requester
+// (404). Without update access in every target locale the request is denied (403), since
+// translating writes to the document there and, without drafts, publishes it. The job
+// checks all of this again when it runs.
 const checkDocument = async ({
   req,
   body,
+  targets,
 }: {
   req: PayloadRequest
   body: TranslateBody
-}): Promise<Response | SanitizedFieldsPermissions> => {
-  if (!(await entityExists({ req, ref: body.ref, locale: body.sourceLocale })))
+  targets: string[]
+}): Promise<Response | null> => {
+  const { ref, sourceLocale } = body
+  if (!(await entityExists({ req, ref, locale: sourceLocale })))
     return fail({ error: 'not-found' }, 404)
-  const permissions = await docPermissions({ req, ref: body.ref })
-  if (!permissions.read) return fail({ error: 'not-found' }, 404)
-  if (!permissions.update) return fail({ error: 'forbidden' }, 403)
-  return permissions.fields
+  const source = await docPermissions({ req, ref, locale: sourceLocale })
+  if (!source.read) return fail({ error: 'not-found' }, 404)
+  for (const locale of targets) {
+    const target = await docPermissions({ req, ref, locale })
+    if (!target.update) return fail({ error: 'forbidden' }, 403)
+  }
+  return null
 }
+
+// The job acts as the requester, so a request without a user has nobody to act as. The
+// plugin's `access` normally denies it already.
+const requesterOf = (req: PayloadRequest): Requester | null =>
+  req.user ? { collection: req.user.collection, id: String(req.user.id) } : null
 
 const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
   path: TRANSLATE_PATH,
@@ -182,11 +195,13 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     if (!body) return fail({ error: 'bad-request' }, 400)
     if (!(await settings.access({ req, ref: body.ref, operation: 'translate' })))
       return fail({ error: 'forbidden' }, 403)
+    const requester = requesterOf(req)
+    if (!requester) return fail({ error: 'forbidden' }, 403)
     if (!settings.provider) return fail({ error: 'not-configured' }, 503)
     const targets = resolveTargets(settings, body)
     if (!Array.isArray(targets)) return targets
-    const fieldPermissions = await checkDocument({ req, body })
-    if (fieldPermissions instanceof Response) return fieldPermissions
+    const denied = await checkDocument({ req, body, targets })
+    if (denied) return denied
 
     const records = await findRecords(req.payload, body.ref)
     // The lock is per document, not per locale, because two jobs for the same document
@@ -199,7 +214,7 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
       settings,
       body,
       targets,
-      fieldPermissions,
+      requester,
     })
     if (!recordsSaved) return fail({ error: 'records-failed', queued: targets }, 500)
     const queued: TranslateQueuedBody = { queued: targets }

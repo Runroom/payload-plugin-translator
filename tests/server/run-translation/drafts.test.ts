@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 
 import { runTranslation } from '../../../src/server/runTranslation.js'
-import { fields, fakePayload, settings, input } from './helpers.js'
+import { fields, fakePayload, settings, input, requester, userOf } from './helpers.js'
+
+// The job checks the requester's document access through Payload, which reads the
+// database; here every requester may translate every field unless a test says otherwise.
+vi.mock('../../../src/server/docAccess.js', () => ({
+  requesterPermissions: vi.fn(async () => true),
+}))
 
 describe('runTranslation without drafts', () => {
   it('writes live a collection whose versions have drafts turned off', async () => {
@@ -81,7 +87,7 @@ const globalPayload = ({
     globals: { config: [{ slug: 'footer', fields, versions }] },
     logger: { error: vi.fn(), warn: vi.fn() },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
-    findByID: vi.fn(),
+    findByID: vi.fn(async (args: { collection?: string }) => userOf(args)),
     findGlobal,
     updateGlobal,
     find: vi.fn(async () => ({ docs: [] })),
@@ -98,6 +104,7 @@ const globalInput = {
   sourceLocale: 'es',
   targetLocales: ['ca'],
   overwriteEdited: false,
+  requester,
 }
 
 describe('runTranslation for a global', () => {
@@ -127,6 +134,8 @@ describe('runTranslation for a global', () => {
       depth: 0,
       data: { title: '[ca] Lema' },
       context: expect.objectContaining({ runroomTranslator: true }),
+      overrideAccess: false,
+      user: expect.objectContaining({ id: 'u1', collection: 'users' }),
     })
   })
 

@@ -36,7 +36,8 @@ export const translateTask = (
     { name: 'sourceLocale', type: 'text' },
     { name: 'targetLocales', type: 'json', required: true },
     { name: 'overwriteEdited', type: 'checkbox' },
-    { name: 'fieldPermissions', type: 'json' },
+    // Who asked: the job reads and writes as this user, with their access at run time.
+    { name: 'requester', type: 'json', required: true },
   ],
   retries: JOB_RETRIES,
   handler: async ({ input, job, req }) => {

@@ -7,11 +7,19 @@ import { fingerprint } from '../../../src/core/fingerprint.js'
 import { MarkError } from '../../../src/core/lexical.js'
 import { fakeProvider } from '../../../src/exports/testing.js'
 import { ProviderError } from '../../../src/provider/types.js'
+import { requesterPermissions } from '../../../src/server/docAccess.js'
+import { AccessDeniedError } from '../../../src/server/errors.js'
 import { RECORDS_SLUG } from '../../../src/server/records.js'
-import { runTranslation } from '../../../src/server/runTranslation.js'
+import { MISSING_REQUESTER, runTranslation } from '../../../src/server/runTranslation.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
-import { fakePayload, settings, input, statefulPayload } from './helpers.js'
+import { fakePayload, settings, input, statefulPayload, userOf } from './helpers.js'
 import type { Docs } from './helpers.js'
+
+// The job checks the requester's document access through Payload, which reads the
+// database; here every requester may translate every field unless a test says otherwise.
+vi.mock('../../../src/server/docAccess.js', () => ({
+  requesterPermissions: vi.fn(async () => true),
+}))
 
 describe('runTranslation', () => {
   it('retries a stale failed record created before this job', async () => {
@@ -51,7 +59,9 @@ describe('runTranslation', () => {
         jobCreatedAt: '2025-02-01T00:00:00Z',
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
-    expect(payload.findByID).not.toHaveBeenCalled()
+    expect(payload.findByID).not.toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'events' }),
+    )
   })
   it('does not send or write denied fields and preserves their previous hashes', async () => {
     const previousSubtitle = { source: 'previous-source', output: 'previous-output' }
@@ -63,11 +73,12 @@ describe('runTranslation', () => {
       record: { status: 'done', fields: { subtitle: previousSubtitle } },
     })
     const translate = vi.fn(fakeProvider().translate)
+    vi.mocked(requesterPermissions).mockResolvedValueOnce({ title: true })
 
     await runTranslation({
       isLastAttempt: true,
       payload,
-      input: { ...input, fieldPermissions: { title: true } },
+      input,
       settings: { ...settings, provider: { translate } },
     })
 
@@ -89,13 +100,9 @@ describe('runTranslation', () => {
       },
       record: { status: 'done', fields: { 'agenda.days.d9.label': gone } },
     })
+    vi.mocked(requesterPermissions).mockResolvedValueOnce({ title: true })
 
-    await runTranslation({
-      isLastAttempt: true,
-      payload,
-      input: { ...input, fieldPermissions: { title: true } },
-      settings,
-    })
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
 
     expect(records.mock.calls.at(-1)![0].data.fields).not.toHaveProperty(
       'agenda.days.d9.label',
@@ -323,12 +330,120 @@ describe('runTranslation', () => {
 
   it('cancels instead of retrying when the document no longer exists', async () => {
     const { payload, records } = fakePayload(pending)
-    payload.findByID = vi.fn().mockRejectedValue(new NotFound())
+    payload.findByID = vi.fn(async (args: { collection?: string }) => {
+      const user = userOf(args)
+      if (!user) throw new NotFound()
+      return user
+    }) as never
 
     await expect(
       runTranslation({ isLastAttempt: true, payload, input, settings }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(records.mock.calls.at(-1)![0].data.status).toBe('failed')
+  })
+
+  it('cancels every locale when the requester no longer exists', async () => {
+    const { payload, records } = fakePayload(pending)
+    const translate = vi.fn(fakeProvider().translate)
+
+    await expect(
+      runTranslation({
+        isLastAttempt: true,
+        payload,
+        input: { ...input, requester: { collection: 'users', id: 'gone' } },
+        settings: { ...settings, provider: { translate } },
+      }),
+    ).rejects.toThrow(MISSING_REQUESTER)
+    expect(records.mock.calls.at(-1)![0].data).toMatchObject({
+      status: 'failed',
+      error: MISSING_REQUESTER,
+    })
+    expect(translate).not.toHaveBeenCalled()
+  })
+
+  it('fails the locale for good without calling the provider when access is denied', async () => {
+    const { payload, records } = fakePayload(pending)
+    const translate = vi.fn(fakeProvider().translate)
+    vi.mocked(requesterPermissions).mockRejectedValueOnce(
+      new AccessDeniedError('Access denied'),
+    )
+
+    await expect(
+      runTranslation({
+        isLastAttempt: false,
+        payload,
+        input,
+        settings: { ...settings, provider: { translate } },
+      }),
+    ).rejects.toBeInstanceOf(JobCancelledError)
+    expect(records.mock.calls.at(-1)![0].data).toMatchObject({
+      status: 'failed',
+      error: 'Access denied',
+    })
+    expect(requesterPermissions).toHaveBeenCalledWith({
+      payload,
+      user: expect.objectContaining({ id: 'u1', collection: 'users' }),
+      ref: expect.objectContaining({ collectionSlug: 'events', docId: 'e1' }),
+      sourceLocale: 'es',
+      targetLocale: 'ca',
+    })
+    expect(translate).not.toHaveBeenCalled()
+  })
+
+  it('reads and writes the document as the requester, with access checks on', async () => {
+    const { payload, update } = fakePayload(pending)
+
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+
+    const user = expect.objectContaining({ id: 'u1', collection: 'users' })
+    expect(payload.findByID).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'events', overrideAccess: false, user }),
+    )
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'events', overrideAccess: false, user }),
+    )
+  })
+
+  it('keeps a field Payload refused to write instead of taking it for a concurrent edit', async () => {
+    const docs: Docs = {
+      es: { id: 'e1', title: 'Curso', subtitle: 'Sub' },
+      ca: { id: 'e1', title: null, subtitle: 'Antic' },
+    }
+    const { payload, update } = statefulPayload(docs)
+    type Write = (args: {
+      collection: string
+      data: Record<string, unknown>
+    }) => Promise<unknown>
+    const writes = update as Mock<Write>
+    const write = writes.getMockImplementation()!
+    // Payload keeps the previous value of a field whose row-level `access.update` says no,
+    // without an error; the fake drops `subtitle` from the save the same way.
+    writes.mockImplementation(async args => {
+      if (args.collection === RECORDS_SLUG) return write(args)
+      const { subtitle: _refused, ...data } = args.data
+      return write({ ...args, data })
+    })
+
+    await runTranslation({
+      isLastAttempt: false,
+      payload,
+      input: { ...input, overwriteEdited: true },
+      settings,
+    })
+
+    expect(docs.ca).toMatchObject({ title: '[ca] Curso', subtitle: 'Antic' })
+    const { docs: saved } = await payload.find({
+      collection: RECORDS_SLUG as never,
+      where: { and: [{ targetLocale: { equals: 'ca' } }] } as never,
+    })
+    const record = saved[0] as unknown as {
+      status: string
+      kept: string[]
+      fields: Record<string, { output: string | null }>
+    }
+    expect(record).toMatchObject({ status: 'done', kept: ['subtitle'] })
+    expect(record.fields.subtitle).toEqual({ source: expect.any(String), output: null })
+    expect(record.fields.title!.output).toEqual(expect.any(String))
   })
 
   it('cancels when the collection is not registered in Payload', async () => {
