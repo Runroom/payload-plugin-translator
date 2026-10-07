@@ -1,5 +1,6 @@
 import type { es } from '../i18n/es.js'
 import type { StatusResponse } from '../shared/api.js'
+import { isPendingState } from '../shared/api.js'
 
 type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
 
@@ -36,7 +37,7 @@ const resultMessages = ({
   doneKey: TranslatorKey
 }): Message[] | null => {
   const items = status.locales.filter(item => requested.includes(item.locale))
-  if (items.some(item => item.state === 'queued' || item.state === 'running')) return null
+  if (items.some(item => isPendingState(item.state))) return null
   const failed = items.find(item => item.state === 'failed')
   if (failed) return [failedMessage(failed.error)]
   const kept = items.reduce((sum, item) => sum + item.kept, 0)

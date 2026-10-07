@@ -2,6 +2,7 @@
 
 import type { ReactElement } from 'react'
 
+import { MessageList } from './MessageList.js'
 import type { Message, Translate } from './messages.js'
 
 // It lives in the bar and not in the drawer to announce the progress and the result even
@@ -24,8 +25,6 @@ export const TranslateStatus = ({
     aria-live={silenced ? 'off' : 'polite'}
     className="rr-translator__sr-only"
   >
-    {messages.map(message => (
-      <p key={message.key}>{t(message.key, message.vars)}</p>
-    ))}
+    <MessageList messages={messages} t={t} />
   </div>
 )

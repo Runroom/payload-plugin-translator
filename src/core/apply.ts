@@ -1,16 +1,14 @@
+import { isRecord } from './guards.js'
 import type { PathSegment } from './types.js'
 
 export type FieldWrite = { segments: PathSegment[]; value: unknown }
 
 type Row = Record<string, unknown>
 
-const isRow = (value: unknown): value is Row =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
 const stepInto = (cursor: Row, segment: PathSegment): Row => {
   const next = cursor[segment.key]
   if (segment.rowId === undefined) {
-    if (isRow(next)) return next
+    if (isRecord(next)) return next
     if (next === null || next === undefined) {
       const created: Row = {}
       cursor[segment.key] = created
@@ -21,8 +19,8 @@ const stepInto = (cursor: Row, segment: PathSegment): Row => {
   if (!Array.isArray(next)) {
     throw new Error(`Field ${segment.key} is not an array in the target`)
   }
-  const row = next.find(item => isRow(item) && String(item.id) === segment.rowId)
-  if (!isRow(row)) {
+  const row = next.find(item => isRecord(item) && String(item.id) === segment.rowId)
+  if (!isRecord(row)) {
     throw new Error(`Row ${segment.key}.${segment.rowId} no longer exists in the target`)
   }
   return row

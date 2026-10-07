@@ -4,6 +4,7 @@ import { countChanged, countMissing } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
 import type { TranslatableValue } from '../core/types.js'
 import type { LocaleStatus, StatusResponse } from '../shared/api.js'
+import { isPendingState } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { Entity, EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
@@ -24,7 +25,7 @@ export const isBusy = (
   record: Pick<TranslationRecord, 'status' | 'updatedAt'> | undefined,
 ): boolean =>
   record !== undefined &&
-  (record.status === 'queued' || record.status === 'running') &&
+  isPendingState(record.status) &&
   Date.now() - Date.parse(record.updatedAt) < BUSY_WINDOW_MS
 
 const untranslated = (locale: string): LocaleStatus => ({
@@ -62,8 +63,8 @@ export const INTERRUPTED_ERROR =
 // it is a failure that can be retried, not an endless "Translating…". It is decided on
 // read: `/status` does not write to the records.
 const stateOf = (record: LocaleRecord): Pick<LocaleStatus, 'state' | 'error'> => {
-  const pending = record.status === 'queued' || record.status === 'running'
-  if (pending && !isBusy(record)) return { state: 'failed', error: INTERRUPTED_ERROR }
+  if (isPendingState(record.status) && !isBusy(record))
+    return { state: 'failed', error: INTERRUPTED_ERROR }
   return { state: record.status, error: record.error ?? null }
 }
 

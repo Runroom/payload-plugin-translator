@@ -4,7 +4,7 @@ import { JobCancelledError, NotFound, ValidationError } from 'payload'
 import { MarkError } from '../core/lexical.js'
 import { ProviderError } from '../provider/types.js'
 import type { EntityRef } from './entity.js'
-import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
+import { defaultLocaleOf, entityOf, localesOf, targetLocalesOf } from './entity.js'
 import type { LocaleRun, Outcome, TranslationJobInput } from './localeRun.js'
 import { ConcurrentEditError, execute, keyOf } from './localeRun.js'
 import type { RecordKey } from './records.js'
@@ -177,9 +177,7 @@ const prepare = async ({
   }
   // An input without `sourceLocale` is translated from the default locale.
   const sourceLocale = input.sourceLocale ?? defaultLocaleOf(payload)
-  const targets = requested.filter(
-    locale => config.locales.includes(locale) && locale !== sourceLocale,
-  )
+  const targets = targetLocalesOf({ locales: config.locales, sourceLocale, requested })
   const cancel = (reason: string): Promise<never> =>
     cancelAll({ payload, input, targets, message: reason })
   if (!config.locales.includes(sourceLocale))

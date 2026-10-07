@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { EntityQuery, LocaleStatus, StatusResponse } from '../shared/api.js'
-import { STATUS_PATH } from '../shared/api.js'
+import { isPendingState, STATUS_PATH } from '../shared/api.js'
 
 const POLL_MS = 2_000
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
@@ -16,8 +16,7 @@ class StatusError extends Error {
   }
 }
 
-export const isInFlight = (item: LocaleStatus): boolean =>
-  item.state === 'queued' || item.state === 'running'
+export const isInFlight = (item: LocaleStatus): boolean => isPendingState(item.state)
 
 export const isRunning = (status: StatusResponse | null): boolean =>
   status?.locales.some(isInFlight) ?? false
