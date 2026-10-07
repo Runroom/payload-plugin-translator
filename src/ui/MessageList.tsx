@@ -2,18 +2,16 @@
 
 import type { ReactElement } from 'react'
 
-import type { Message, Translate } from './messages.js'
+import { useTranslator } from './TranslatorContext.js'
+import type { Message } from './messages.js'
 
-export const MessageList = ({
-  messages,
-  t,
-}: {
-  messages: Message[]
-  t: Translate
-}): ReactElement => (
-  <>
-    {messages.map(message => (
-      <p key={message.key}>{t(message.key, message.vars)}</p>
-    ))}
-  </>
-)
+export const MessageList = ({ messages }: { messages: Message[] }): ReactElement => {
+  const { t } = useTranslator()
+  return (
+    <>
+      {messages.map(message => (
+        <p key={message.key}>{t(message.key, message.vars)}</p>
+      ))}
+    </>
+  )
+}

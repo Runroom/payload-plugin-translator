@@ -2,36 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { EntityQuery, LocaleStatus, StatusResponse } from '../shared/api.js'
-import { isPendingState, STATUS_PATH } from '../shared/api.js'
+import type { EntityQuery, StatusResponse } from '../shared/api.js'
+import { STATUS_PATH } from '../shared/api.js'
+import { deniesAccess, isInFlight, isRunning, requestStatus } from './statusRequest.js'
+import { usePolling } from './usePolling.js'
 
-const POLL_MS = 2_000
+// Other UI files import these from here.
+export { isInFlight, isRunning }
+
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
-// Consecutive poll failures after which polling stops and a retry is offered.
-const MAX_FAILED_POLLS = 5
-
-class StatusError extends Error {
-  constructor(readonly status: number) {
-    super(`translator status ${status}`)
-  }
-}
-
-export const isInFlight = (item: LocaleStatus): boolean => isPendingState(item.state)
-
-export const isRunning = (status: StatusResponse | null): boolean =>
-  status?.locales.some(isInFlight) ?? false
-
-const requestStatus = async (
-  url: string,
-  signal?: AbortSignal,
-): Promise<StatusResponse> => {
-  const response = await fetch(url, { credentials: 'include', signal })
-  if (!response.ok) throw new StatusError(response.status)
-  return (await response.json()) as StatusResponse
-}
-
-const deniesAccess = (error: unknown): boolean =>
-  error instanceof StatusError && (error.status === 403 || error.status === 404)
 
 const wait = (ms: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -124,69 +103,6 @@ const useSequence = (): (() => () => boolean) => {
       return true
     }
   }, [])
-}
-
-const increment = (count: number): number => count + 1
-
-// A 403/404 is one more state (`null`: no access); any other failure is transient.
-const pollStatus = async (
-  url: string,
-  signal: AbortSignal,
-): Promise<{ status: StatusResponse | null } | 'failed' | 'aborted'> => {
-  try {
-    return { status: await requestStatus(url, signal) }
-  } catch (error) {
-    if (signal.aborted) return 'aborted'
-    return deniesAccess(error) ? { status: null } : 'failed'
-  }
-}
-
-// A transient poll failure keeps the last status; `failedPolls` fires the effect again
-// even though `status` did not change. 403/404 are the access answer (expired session,
-// permission revoked): they hide the control as in the initial load, and that stops the
-// polling. After `MAX_FAILED_POLLS` consecutive failures it stops and offers a retry.
-const usePolling = ({
-  url,
-  status,
-  apply,
-  next,
-}: {
-  url: string | null
-  status: StatusResponse | null
-  apply: (status: StatusResponse | null) => void
-  next: () => () => boolean
-}): { stalled: boolean; resume: () => void } => {
-  const [failedPolls, setFailedPolls] = useState(0)
-  const previousURL = useRef(url)
-  useEffect(() => {
-    if (previousURL.current !== url) {
-      previousURL.current = url
-      setFailedPolls(0)
-    }
-  }, [url])
-  const stalled = failedPolls >= MAX_FAILED_POLLS
-  useEffect(() => {
-    if (!url || !isRunning(status) || stalled) return
-    const controller = new AbortController()
-    const timer = setTimeout(() => {
-      const isLatest = next()
-      void pollStatus(url, controller.signal).then(outcome => {
-        if (outcome === 'aborted') return
-        if (outcome === 'failed') {
-          setFailedPolls(increment)
-          return
-        }
-        setFailedPolls(0)
-        if (isLatest()) apply(outcome.status)
-      })
-    }, POLL_MS)
-    return (): void => {
-      clearTimeout(timer)
-      controller.abort()
-    }
-  }, [url, status, failedPolls, stalled, apply, next])
-  const resume = useCallback((): void => setFailedPolls(0), [])
-  return { stalled, resume }
 }
 
 export const useTranslatorStatus = ({

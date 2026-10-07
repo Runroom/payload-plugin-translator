@@ -4,13 +4,13 @@ import { Button, Drawer, useModal, XIcon } from '@payloadcms/ui'
 import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 
-import type { LocaleStatus, StatusResponse } from '../shared/api.js'
+import type { StatusResponse } from '../shared/api.js'
 import { isUpToDate, LocaleStates } from './LocaleStates.js'
 import { MessageList } from './MessageList.js'
 import { Notice } from './Notice.js'
 import { TranslateOptions } from './TranslateOptions.js'
-import type { LocaleLink } from './localeLink.js'
-import type { Message, Translate } from './messages.js'
+import { useTranslator } from './TranslatorContext.js'
+import type { Message } from './messages.js'
 import { defaultOptionValues, TRANSLATE_OPTIONS } from './options.js'
 import type { SendTranslation } from './useTranslateRequest.js'
 
@@ -22,13 +22,8 @@ type DrawerProps = {
   busy: boolean
   notice: ReactNode
   messages: Message[]
-  labelOf: (code: string) => string
-  sourceLabelOf: (item: LocaleStatus) => string
-  language: string
-  linkOf: (locale: string) => LocaleLink | null
   refresh: () => Promise<void>
   send: SendTranslation
-  t: Translate
 }
 
 // Payload's `Drawer` leaves the dialog with an `aria-label` equal to the slug, which is
@@ -36,8 +31,8 @@ type DrawerProps = {
 const DrawerHeader = ({
   slug,
   title,
-  t,
-}: Pick<DrawerProps, 'slug' | 'title' | 't'>): ReactElement => {
+}: Pick<DrawerProps, 'slug' | 'title'>): ReactElement => {
+  const { t } = useTranslator()
   const { closeModal } = useModal()
   const titleId = useId()
   const titleRef = useRef<HTMLHeadingElement>(null)
@@ -63,9 +58,9 @@ const DrawerHeader = ({
 
 // The bar's live region is outside the `<dialog aria-modal>` and some screen readers
 // announce nothing outside the modal: while the drawer is open, this one announces.
-const Summary = ({ messages, t }: Pick<DrawerProps, 'messages' | 't'>): ReactElement => (
+const Summary = ({ messages }: Pick<DrawerProps, 'messages'>): ReactElement => (
   <div role="status" className="rr-translator__summary">
-    <MessageList messages={messages} t={t} />
+    <MessageList messages={messages} />
   </div>
 )
 
@@ -77,11 +72,11 @@ const SubmitFooter = ({
   messages,
   describedBy,
   onSubmit,
-  t,
-}: Pick<DrawerProps, 'busy' | 'messages' | 't'> & {
+}: Pick<DrawerProps, 'busy' | 'messages'> & {
   describedBy: string
   onSubmit: () => void
 }): ReactElement => {
+  const { t } = useTranslator()
   const hintId = useId()
   return (
     <div className="rr-translator__footer">
@@ -106,7 +101,7 @@ const SubmitFooter = ({
             {t('translator:busyHint')}
           </p>
         ) : null}
-        <Summary messages={messages} t={t} />
+        <Summary messages={messages} />
       </div>
     </div>
   )
@@ -120,14 +115,10 @@ const DrawerBody = ({
   busy,
   notice,
   messages,
-  labelOf,
-  sourceLabelOf,
-  language,
-  linkOf,
   refresh,
   send,
-  t,
 }: DrawerProps): ReactElement => {
+  const { t } = useTranslator()
   const [selected, setSelected] = useState<string[] | null>(null)
   const [options, setOptions] = useState(defaultOptionValues)
   const [missingLanguage, setMissingLanguage] = useState(false)
@@ -158,13 +149,10 @@ const DrawerBody = ({
       )}
       <LocaleStates
         locales={status.locales}
-        labelOf={labelOf}
-        sourceLabelOf={sourceLabelOf}
         selected={chosen}
         translated={translated}
         busy={busy}
         error={missingLanguage ? t('translator:chooseLanguage') : null}
-        language={language}
         onToggle={code => {
           setMissingLanguage(false)
           setSelected(
@@ -176,14 +164,11 @@ const DrawerBody = ({
         onRetry={code => void translate([code])}
         retryDescribedBy={modeDescription}
         writesLive={status.writesLive}
-        linkOf={linkOf}
-        t={t}
       />
       <TranslateOptions
         definitions={TRANSLATE_OPTIONS}
         values={options}
         onChange={(id, value) => setOptions({ ...options, [id]: value })}
-        t={t}
       />
       <SubmitFooter
         busy={busy}
@@ -193,7 +178,6 @@ const DrawerBody = ({
           if (chosen.length === 0) setMissingLanguage(true)
           else void translate(chosen)
         }}
-        t={t}
       />
     </div>
   )
@@ -204,7 +188,7 @@ export const TranslateDrawer = (props: DrawerProps): ReactElement => (
     slug={props.slug}
     className="rr-translator-drawer"
     gutter={false}
-    Header={<DrawerHeader slug={props.slug} title={props.title} t={props.t} />}
+    Header={<DrawerHeader slug={props.slug} title={props.title} />}
   >
     <DrawerBody {...props} />
   </Drawer>

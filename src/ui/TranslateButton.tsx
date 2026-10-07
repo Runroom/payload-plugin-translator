@@ -5,6 +5,7 @@ import type { ReactElement } from 'react'
 
 import type { LocaleStatus } from '../shared/api.js'
 import { Spinner } from './Notice.js'
+import { useTranslator } from './TranslatorContext.js'
 import type { Translate } from './messages.js'
 
 const attentionParts = ({
@@ -24,16 +25,13 @@ const attentionParts = ({
 export const TranslateButton = ({
   locales,
   busy,
-  language,
   onClick,
-  t,
 }: {
   locales: LocaleStatus[]
   busy: boolean
-  language: string
   onClick: () => void
-  t: Translate
 }): ReactElement => {
+  const { t, language } = useTranslator()
   const stale = locales.filter(item => item.state === 'done' && item.stale).length
   const failed = locales.filter(item => item.state === 'failed').length
   const attention = busy ? [] : attentionParts({ stale, failed, t })

@@ -7,7 +7,7 @@ import { useId, useLayoutEffect, useRef } from 'react'
 import type { LocaleStatus } from '../shared/api.js'
 import type { Tone } from './Notice.js'
 import { Spinner } from './Notice.js'
-import type { LocaleLink } from './localeLink.js'
+import { useTranslator } from './TranslatorContext.js'
 import type { Translate, TranslatorKey } from './messages.js'
 import { failedMessage } from './messages.js'
 import { formatRelative } from './relativeTime.js'
@@ -68,12 +68,12 @@ type RowProps = {
   onRetry: () => void
   retryDescribedBy: string
   busy: boolean
-  linkOf: (locale: string) => LocaleLink | null
-  language: string
-  t: Translate
 }
 
-const rowDetails = ({ item, sourceLabel, state, language, t }: RowProps): string[] => {
+const rowDetails = (
+  { item, sourceLabel, state }: RowProps,
+  { t, language }: { t: Translate; language: string },
+): string[] => {
   const when = item.translatedAt
     ? formatRelative({ date: item.translatedAt, now: Date.now(), language })
     : null
@@ -94,24 +94,19 @@ const rowDetails = ({ item, sourceLabel, state, language, t }: RowProps): string
   ].filter((text): text is string => text !== null)
 }
 
-const StatePill = ({
-  id,
-  state,
-  t,
-}: {
-  id: string
-  state: RowState
-  t: Translate
-}): ReactElement => (
-  <span id={id} className="rr-translator__pill" data-tone={STATES[state].tone}>
-    {state === 'running' ? (
-      <Spinner />
-    ) : (
-      <span className="rr-translator__pill-dot" aria-hidden="true" />
-    )}
-    {t(STATES[state].key)}
-  </span>
-)
+const StatePill = ({ id, state }: { id: string; state: RowState }): ReactElement => {
+  const { t } = useTranslator()
+  return (
+    <span id={id} className="rr-translator__pill" data-tone={STATES[state].tone}>
+      {state === 'running' ? (
+        <Spinner />
+      ) : (
+        <span className="rr-translator__pill-dot" aria-hidden="true" />
+      )}
+      {t(STATES[state].key)}
+    </span>
+  )
+}
 
 // The actions wait for the end of the batch: while a locale is still in progress, "Review"
 // would lead to a text the job can still rewrite and "Retry" would get a 409. They stay
@@ -125,9 +120,8 @@ const ReviewAction = ({
   item,
   label,
   busy,
-  linkOf,
-  t,
-}: Pick<RowProps, 'item' | 'label' | 'busy' | 'linkOf' | 't'>): ReactElement | null => {
+}: Pick<RowProps, 'item' | 'label' | 'busy'>): ReactElement | null => {
+  const { t, linkOf } = useTranslator()
   const link = linkOf(item.locale)
   if (!link) return null
   return (
@@ -152,8 +146,8 @@ const ReviewAction = ({
   )
 }
 
-const rowActions = (props: RowProps): ReactElement | null => {
-  const { label, state, onRetry, retryDescribedBy, busy, t } = props
+const rowActions = (props: RowProps, t: Translate): ReactElement | null => {
+  const { label, state, onRetry, retryDescribedBy, busy } = props
   if (isFreshlyDone(state)) return <ReviewAction {...props} />
   if (state === 'failed') {
     return (
@@ -205,13 +199,14 @@ const RowActions = ({
 }
 
 const LocaleRow = (props: RowProps): ReactElement => {
-  const { label, state, selected, onToggle, t } = props
+  const { label, state, selected, onToggle } = props
+  const { t, language } = useTranslator()
   const inputId = useId()
   const stateId = `${inputId}-state`
   const detailsId = `${inputId}-details`
   const checkboxRef = useRef<HTMLInputElement>(null)
-  const details = rowDetails(props)
-  const actions = rowActions(props)
+  const details = rowDetails(props, { t, language })
+  const actions = rowActions(props, t)
   return (
     <li className="rr-translator__row" data-state={state}>
       <input
@@ -228,7 +223,7 @@ const LocaleRow = (props: RowProps): ReactElement => {
           <label htmlFor={inputId} className="rr-translator__row-label">
             {label}
           </label>
-          <StatePill id={stateId} state={state} t={t} />
+          <StatePill id={stateId} state={state} />
         </div>
         {details.length > 0 ? (
           <p id={detailsId} className="rr-translator__row-details">
@@ -251,35 +246,26 @@ const LocaleRow = (props: RowProps): ReactElement => {
 
 export const LocaleStates = ({
   locales,
-  labelOf,
-  sourceLabelOf,
   selected,
   translated,
   busy,
   error,
-  language,
   onToggle,
   onRetry,
   retryDescribedBy,
   writesLive,
-  linkOf,
-  t,
 }: {
   locales: LocaleStatus[]
-  labelOf: (code: string) => string
-  sourceLabelOf: (item: LocaleStatus) => string
   selected: string[]
   translated: string[]
   busy: boolean
   error: string | null
-  language: string
   onToggle: (code: string) => void
   onRetry: (code: string) => void
   retryDescribedBy: string
   writesLive: boolean
-  linkOf: (locale: string) => LocaleLink | null
-  t: Translate
 }): ReactElement => {
+  const { t, labelOf, sourceLabelOf } = useTranslator()
   const errorId = useId()
   return (
     <fieldset
@@ -302,9 +288,6 @@ export const LocaleStates = ({
             onRetry={() => onRetry(item.locale)}
             retryDescribedBy={retryDescribedBy}
             busy={busy}
-            linkOf={linkOf}
-            language={language}
-            t={t}
           />
         ))}
       </ul>
