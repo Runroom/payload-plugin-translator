@@ -98,28 +98,41 @@ const idOf = (value: unknown): unknown => (isRecord(value) ? value.id : value) ?
 
 const MAX_DECODES = 10
 
-// A url Payload saves as-is: one its `validateUrl` accepts (absolute, or a path, fragment,
-// query, mailto or tel).
-const isLiteralUrl = (url: string): boolean => {
-  if (/^([/#?]|mailto:|tel:)/.test(url)) return true
+// Mirrors `validateUrl` in @payloadcms/richtext-lexical 3.90.2
+// (dist/lexical/utils/url.js), the rule the link `beforeChange` hook
+// (dist/features/link/server/baseFields.js) uses to decide whether to re-encode a url.
+// Copied rather than imported: the package is not a dependency of this plugin.
+const ABSOLUTE_URL =
+  /^(?:[a-zA-Z][a-zA-Z\d+.-]*:(?:\/\/)?(?:[-;:&=+$,\w]+@)?[A-Za-z\d]+(?:\.[A-Za-z\d]+)+|www\.[A-Za-z\d]+(?:\.[A-Za-z\d]+)+|(?:tel|mailto):[\w+.-]+)(?:\/[+~%/\w-]*)?(?:\?[-;&=%\w]*)?(?:#\w+)?$/
+const RELATIVE_OR_ANCHOR_URL = /^(?:\/[\w\-./]*(?:\?[-;&=%\w]*)?(?:#[\w-]+)?|#[\w\-]+)$/
+const MALFORMED_PROTOCOL = /^[a-z][a-z\d+.-]*:\/[^/]/i
+
+const hasDottedHost = (url: string): boolean => {
   try {
-    new URL(url)
-    return true
+    const { protocol, hostname } = new URL(url)
+    return !['ftp:', 'http:', 'https:'].includes(protocol) || hostname.includes('.')
   } catch {
     return false
   }
 }
 
+export const validateUrl = (url: string): boolean => {
+  if (!url || url.includes(' ') || MALFORMED_PROTOCOL.test(url)) return false
+  if (url === 'https://') return true
+  if (ABSOLUTE_URL.test(url) || RELATIVE_OR_ANCHOR_URL.test(url)) return true
+  return hasDottedHost(url)
+}
+
 // Payload's link `beforeChange` runs `encodeURIComponent` on every url its `validateUrl`
-// rejects (`example.com/x`, `http://localhost:3000/x`), even when it is already encoded, so
-// each save adds a layer (`%2F` → `%252F`). Those are compared fully decoded; otherwise a
-// freshly written target would never match when read back. A url Payload keeps as-is is
-// compared literally, so `https://example.com/a%2Fb` and `https://example.com/a/b` differ.
+// rejects (`example.com/x`, `http://localhost:3000/x`, `/a%2Fb`), even when it is already
+// encoded, so each save adds a layer (`%2F` → `%252F`). Those are decoded layer by layer
+// until Payload would keep the result; otherwise a freshly written target would never match
+// when read back. A url Payload keeps as-is is compared literally, so
+// `https://example.com/a%2Fb` and `https://example.com/a/b` differ.
 const canonicalUrl = (url: unknown): unknown => {
   if (typeof url !== 'string') return url ?? null
-  if (isLiteralUrl(url)) return url
   let current = url
-  for (let i = 0; i < MAX_DECODES; i++) {
+  for (let i = 0; i < MAX_DECODES && !validateUrl(current); i++) {
     let next: string
     try {
       next = decodeURIComponent(current)

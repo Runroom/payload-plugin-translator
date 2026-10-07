@@ -4,10 +4,12 @@ type MarkShape = {
   pairs: Set<number>
   voids: Set<number>
   texts: Set<number>
+  // The raw text of each childless pair (a text leaf).
+  leafTexts: Map<number, string>
   parents: Map<number, number | null>
 }
 
-type OpenMark = { index: number; hasChild: boolean; hasText: boolean }
+type OpenMark = { index: number; hasChild: boolean; hasText: boolean; text: string }
 
 const declare = (
   shape: MarkShape,
@@ -26,7 +28,10 @@ const closeShape = (shape: MarkShape, open: OpenMark[], index: number): boolean 
   const top = open.pop()
   if (!top || top.index !== index) return false
   if (top.hasChild && top.hasText) return false
-  if (!top.hasChild) shape.texts.add(index)
+  if (!top.hasChild) {
+    shape.texts.add(index)
+    shape.leafTexts.set(index, top.text)
+  }
   return true
 }
 
@@ -41,7 +46,7 @@ const consumeToken = (
   const isVoid = Boolean(match[1])
   if (!declare(shape, isVoid, index, parent?.index ?? null)) return false
   if (parent) parent.hasChild = true
-  if (!isVoid) open.push({ index, hasChild: false, hasText: false })
+  if (!isVoid) open.push({ index, hasChild: false, hasText: false, text: '' })
   return true
 }
 
@@ -55,6 +60,7 @@ const shapeOf = (input: string): MarkShape | null => {
     pairs: new Set(),
     voids: new Set(),
     texts: new Set(),
+    leafTexts: new Map(),
     parents: new Map(),
   }
   const open: OpenMark[] = []
@@ -62,8 +68,9 @@ const shapeOf = (input: string): MarkShape | null => {
   for (const match of input.matchAll(TOKEN)) {
     const between = input.slice(cursor, match.index)
     cursor = match.index + match[0].length
+    const top = open[open.length - 1]
+    if (top) top.text += between
     if (between.trim() !== '') {
-      const top = open[open.length - 1]
       if (!top) return null
       top.hasText = true
     }
@@ -77,6 +84,10 @@ const sameSet = (a: Set<number>, b: Set<number>): boolean =>
 
 const sameParents = (a: MarkShape, b: MarkShape): boolean =>
   [...a.parents].every(([index, parent]) => b.parents.get(index) === parent)
+
+// The text of every text mark, by index, or null when the marks are malformed.
+export const textMarksOf = (input: string): Map<number, string> | null =>
+  shapeOf(input)?.leafTexts ?? null
 
 export const marksMatch = (source: string, translated: string): boolean => {
   const expected = shapeOf(source)

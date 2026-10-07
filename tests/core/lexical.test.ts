@@ -9,7 +9,7 @@ import {
   replaceContainers,
   structureOf,
 } from '../../src/core/lexical.js'
-import { marksMatch } from '../../src/core/marks.js'
+import { marksMatch, textMarksOf } from '../../src/core/marks.js'
 
 const text = (value: string, format = 0): LexicalNode => ({
   type: 'text',
@@ -183,6 +183,21 @@ describe('marksMatch', () => {
 
   it('treats plain strings without marks as matching', () => {
     expect(marksMatch('Hola', 'Hello')).toBe(true)
+  })
+})
+
+describe('textMarksOf', () => {
+  it('returns the text of every childless pair, not of containers or voids', () => {
+    expect(textMarksOf('<1>a </1><2><3>b</3></2><4/>')).toEqual(
+      new Map([
+        [1, 'a '],
+        [3, 'b'],
+      ]),
+    )
+  })
+
+  it('returns null for malformed marks', () => {
+    expect(textMarksOf('<1>a')).toBeNull()
   })
 })
 

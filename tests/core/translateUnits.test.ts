@@ -253,6 +253,48 @@ describe('translateUnits', () => {
     expect(translate).toHaveBeenCalledTimes(2)
   })
 
+  it('retries a rich text unit whose text mark came back emptied, then fails with MarkError', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '<1></1><2>mundo</2>' })
+
+    await expect(
+      translateUnits({
+        ...base,
+        provider: { translate },
+        units: new Map([['body#0', '<1>Hello </1><2>world</2>']]),
+        withMarks: id => id.includes('#'),
+      }),
+    ).rejects.toThrow(MarkError)
+    expect(translate).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts a rich text unit whose text marks were reordered but kept their text', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '<2>mundo</2> <1>Hola</1>' })
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([['body#0', '<1>Hello </1><2>world</2>']]),
+      withMarks: id => id.includes('#'),
+    })
+
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(result.get('body#0')).toBe('<2>mundo</2> <1>Hola</1>')
+  })
+
+  it('accepts an emptied text mark whose source text was only whitespace', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '<1></1><2>mundo</2>' })
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([['body#0', '<1> </1><2>world</2>']]),
+      withMarks: id => id.includes('#'),
+    })
+
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(result.get('body#0')).toBe('<1></1><2>mundo</2>')
+  })
+
   it('accepts a rich text unit whose only text is an escaped character', async () => {
     const translate = vi.fn().mockResolvedValue({ u0: '<1>&lt;</1>' })
 
