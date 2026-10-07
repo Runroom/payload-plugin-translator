@@ -23,8 +23,11 @@ export const endpoint = (
 ): ((req: PayloadRequest) => Promise<Response>) =>
   translatorEndpoints(s).find(item => item.path === path)!.handler as never
 
+export const requester = { id: 'u1', collection: 'users' }
+
 export const request = ({
   body,
+  user = requester,
   records = [],
   query = '',
   doc = { id: 'e1', title: 'Curso' },
@@ -48,6 +51,7 @@ export const request = ({
   ],
 }: {
   body?: unknown
+  user?: { id: string; collection: string } | null
   records?: Record<string, unknown>[]
   query?: string
   doc?: Record<string, unknown> | null
@@ -94,6 +98,8 @@ export const request = ({
   const findVersions = vi.fn(async () => ({ docs: versions }))
   const findGlobalVersions = vi.fn(async () => ({ docs: versions }))
   const req = {
+    user,
+    locale: 'es',
     json: async () => {
       if (invalidJson) throw new SyntaxError('Unexpected token')
       return body

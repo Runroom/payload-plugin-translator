@@ -16,11 +16,14 @@ import type { RecordKey } from './records.js'
 import { recordKeyOf, saveRecord } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
+/** The user who asked for the translation; the job acts on their behalf. */
+export type Requester = { collection: string; id: string }
+
 export type TranslationJobInput = EntityRef & {
   sourceLocale: string
   targetLocales: string[]
   overwriteEdited: boolean
-  fieldPermissions?: SanitizedFieldsPermissions
+  requester: Requester
 }
 
 type PathWrite = FieldWrite & { path: string }
@@ -30,9 +33,12 @@ export type LocaleRun = {
   provider: TranslationProvider
   settings: TranslatorSettings
   input: TranslationJobInput
+  // Reads and writes as the requester, so Payload applies their access rules.
   entity: Entity
   sourceLocale: string
   targetLocale: string
+  // The requester's field permissions for this pair of locales, checked when the job runs.
+  permissions: SanitizedFieldsPermissions
 }
 
 const translatePlan = async ({
@@ -84,7 +90,7 @@ const translatablesOf = (
     fields: run.entity.fields,
     data: doc,
     blocks: run.payload.config.blocks ?? [],
-    permissions: restricted ? run.input.fieldPermissions : true,
+    permissions: restricted ? run.permissions : true,
   })
 
 // Fields the requester may not touch are left out of the plan but keep their fingerprints;
@@ -101,11 +107,31 @@ const keepHiddenHashes = ({
   plan: { hashes: FieldHashes }
   previous: FieldHashes
 }): void => {
-  if (run.input.fieldPermissions === undefined) return
+  if (run.permissions === true) return
   for (const { path } of translatablesOf(run, sourceDoc, { restricted: false })) {
     const hashes = previous[path]
     if (hashes && !(path in plan.hashes)) plan.hashes[path] = hashes
   }
+}
+
+// Payload does not reject a field whose row-level `access.update` denies the write (a
+// locked row): it silently keeps the previous value. A field saved with the value it held
+// right before the write, and not with what was sent, was refused that way. It is kept
+// like a hand edit, so the run does not fail and the next run tries again.
+const wasRefused = ({
+  value,
+  sent,
+  saved,
+  before,
+}: {
+  value: TranslatableValue
+  sent: PathWrite
+  saved: TranslatableValue | undefined
+  before: string | null | undefined
+}): boolean => {
+  const savedHash = saved ? fingerprintOf(saved) : null
+  if (savedHash === fingerprintOf({ ...value, value: sent.value })) return false
+  return savedHash === (before ?? null)
 }
 
 // The `output` fingerprint comes from what Payload saved, not from what was sent. If a
@@ -115,22 +141,28 @@ const hashesOf = ({
   plan,
   writes,
   written,
+  before,
   run,
 }: {
   plan: TranslationPlan
   writes: PathWrite[]
   written: Record<string, unknown>
+  before: Map<string, string | null>
   run: LocaleRun
 }): FieldHashes => {
   const saved = translatablesOf(run, written)
   const hashes: FieldHashes = {}
   for (const value of plan.translate) {
-    if (!writes.some(write => write.path === value.path)) continue
+    const sent = writes.find(write => write.path === value.path)
+    if (!sent) continue
     const savedValue = saved.find(item => item.path === value.path)
-    hashes[value.path] = {
-      source: fingerprintOf(value)!,
-      output: savedValue ? fingerprintOf(savedValue) : null,
+    const source = fingerprintOf(value)!
+    if (wasRefused({ value, sent, saved: savedValue, before: before.get(value.path) })) {
+      plan.kept.push(value.path)
+      plan.hashes[value.path] = { source, output: null }
+      continue
     }
+    hashes[value.path] = { source, output: savedValue ? fingerprintOf(savedValue) : null }
   }
   return hashes
 }
@@ -147,6 +179,7 @@ const verifyWrite = async ({
   hashes: FieldHashes
   previous: FieldHashes
 }): Promise<void> => {
+  if (Object.keys(hashes).length === 0) return
   const { payload, input, entity, targetLocale } = run
   const saved = await entity.read({ locale: targetLocale, withFallback: false })
   const values = translatablesOf(run, saved)
@@ -189,26 +222,27 @@ const saveVerified = async ({
 // while the provider ran. It is kept like a hand edit found at planning time, whatever
 // `overwriteEdited`: that option covers the edits that existed when the editor asked.
 const dropEdited = ({
-  run,
   plan,
   writes,
-  targetDoc,
+  current,
 }: {
-  run: LocaleRun
   plan: TranslationPlan
   writes: PathWrite[]
-  targetDoc: Record<string, unknown>
-}): PathWrite[] => {
-  const current = new Map(
-    translatablesOf(run, targetDoc).map(value => [value.path, fingerprintOf(value)]),
-  )
-  return writes.filter(write => {
+  current: Map<string, string | null>
+}): PathWrite[] =>
+  writes.filter(write => {
     if ((current.get(write.path) ?? null) === plan.targetHashes[write.path]) return true
     const source = plan.translate.find(value => value.path === write.path)!
     plan.kept.push(write.path)
     plan.hashes[write.path] = { source: fingerprintOf(source)!, output: null }
     return false
   })
+
+type Written = {
+  writes: PathWrite[]
+  written: Record<string, unknown> | null
+  // Target fingerprints right before the write, to notice a field Payload refused to write.
+  before: Map<string, string | null>
 }
 
 // Re-read the target right before writing. The provider calls happen between planning and
@@ -223,16 +257,19 @@ const writeTranslation = async ({
   run: LocaleRun
   plan: TranslationPlan
   writes: PathWrite[]
-}): Promise<{ writes: PathWrite[]; written: Record<string, unknown> | null }> => {
+}): Promise<Written> => {
   const { entity, targetLocale } = run
   const targetDoc = await entity.read({ locale: targetLocale, withFallback: false })
-  const left = dropEdited({ run, plan, writes, targetDoc })
-  if (left.length === 0) return { writes: left, written: null }
+  const before = new Map(
+    translatablesOf(run, targetDoc).map(value => [value.path, fingerprintOf(value)]),
+  )
+  const left = dropEdited({ plan, writes, current: before })
+  if (left.length === 0) return { writes: left, written: null, before }
   const written = await entity.write({
     locale: targetLocale,
     data: buildUpdateData({ targetDoc, writes: left }),
   })
-  return { writes: left, written }
+  return { writes: left, written, before }
 }
 
 export type Outcome = { hashes: FieldHashes; kept: string[]; translated: boolean }
@@ -261,11 +298,20 @@ export const execute = async (run: LocaleRun, previous: Previous): Promise<Outco
   }
 
   const translated = await translatePlan({ plan, run })
-  const { writes, written } = await writeTranslation({ run, plan, writes: translated })
+  const { writes, written, before } = await writeTranslation({
+    run,
+    plan,
+    writes: translated,
+  })
   if (written === null) {
     return { hashes: plan.hashes, kept: plan.kept, translated: false }
   }
-  const hashes = hashesOf({ plan, writes, written, run })
+  const hashes = hashesOf({ plan, writes, written, before, run })
   await verifyWrite({ run, hashes, previous: previous.fields })
-  return { hashes: { ...plan.hashes, ...hashes }, kept: plan.kept, translated: true }
+  const translatedAny = Object.keys(hashes).length > 0
+  return {
+    hashes: { ...plan.hashes, ...hashes },
+    kept: plan.kept,
+    translated: translatedAny,
+  }
 }

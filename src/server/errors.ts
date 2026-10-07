@@ -7,6 +7,12 @@ export class ConcurrentEditError extends Error {
   override readonly name = 'ConcurrentEditError'
 }
 
+// The requester may no longer read the source or update the target; retrying would only
+// ask again.
+export class AccessDeniedError extends Error {
+  override readonly name = 'AccessDeniedError'
+}
+
 // A locale that already failed for good earlier in this job. The POST sets every record to
 // `queued` before the job starts, so a `failed` record can only come from an earlier
 // attempt of the same job, and repeating it would spend provider calls to fail again.
@@ -21,4 +27,5 @@ export const isUnrecoverable = (error: unknown): boolean =>
   error instanceof MarkError ||
   error instanceof NotFound ||
   error instanceof ValidationError ||
-  error instanceof PreviousFailure
+  error instanceof PreviousFailure ||
+  error instanceof AccessDeniedError

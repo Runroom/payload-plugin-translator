@@ -33,7 +33,20 @@ export default buildConfig({
   localization: { locales: ['en', 'es', 'fr'], defaultLocale: 'en' },
   admin: { user: 'users' },
   collections: [
-    { slug: 'users', auth: true, fields: [] },
+    {
+      slug: 'users',
+      auth: true,
+      fields: [
+        // Flags the `guarded` access rules look at; both can change after a job is queued.
+        { name: 'canTranslate', type: 'checkbox', defaultValue: true },
+        {
+          name: 'role',
+          type: 'select',
+          options: ['editor', 'admin'],
+          defaultValue: 'editor',
+        },
+      ],
+    },
     {
       slug: 'posts',
       versions: { drafts: true },
@@ -47,6 +60,42 @@ export default buildConfig({
       slug: 'pages',
       fields: [{ name: 'title', type: 'text', localized: true, required: true }],
     },
+    // Access rules that depend on the locale, the user and the row, which the job must
+    // honour as the requester.
+    {
+      slug: 'guarded',
+      versions: { drafts: true },
+      access: {
+        update: ({ req }): boolean =>
+          req.locale !== 'fr' && req.user?.canTranslate === true,
+      },
+      fields: [
+        { name: 'title', type: 'text', localized: true },
+        {
+          name: 'secretNote',
+          type: 'text',
+          localized: true,
+          access: { read: ({ req }): boolean => req.user?.role === 'admin' },
+        },
+        {
+          name: 'items',
+          type: 'array',
+          fields: [
+            {
+              name: 'text',
+              type: 'text',
+              localized: true,
+              // `siblingData` is the row when a document is saved and absent when Payload
+              // computes schema-level permissions.
+              access: {
+                update: ({ siblingData }): boolean => siblingData?.locked !== true,
+              },
+            },
+            { name: 'locked', type: 'checkbox', defaultValue: false },
+          ],
+        },
+      ],
+    },
   ],
   globals: [
     {
@@ -58,7 +107,7 @@ export default buildConfig({
   // No `jobs.autoRun`: the integration tests run the queue themselves.
   plugins: [
     translatorPlugin({
-      collections: { posts: {}, pages: {} },
+      collections: { posts: {}, pages: {}, guarded: {} },
       globals: { footer: {} },
       provider,
       access: ({ req }) => Boolean(req.user),

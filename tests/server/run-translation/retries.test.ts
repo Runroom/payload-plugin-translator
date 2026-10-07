@@ -21,6 +21,12 @@ import {
 } from './helpers.js'
 import type { Docs } from './helpers.js'
 
+// The job checks the requester's document access through Payload, which reads the
+// database; here every requester may translate every field unless a test says otherwise.
+vi.mock('../../../src/server/docAccess.js', () => ({
+  requesterPermissions: vi.fn(async () => true),
+}))
+
 describe('runTranslation retries and safety checks', () => {
   it('leaves the locale queued with the error while the job still has attempts left', async () => {
     const { payload, records } = fakePayload({ docs: { ...bothLocales } })
@@ -264,8 +270,11 @@ describe('runTranslation against a target that changes while translating', () =>
     writes.mockImplementation(async args => {
       if (args.collection === RECORDS_SLUG || raced) return write(args)
       raced = true
-      const { subtitle: _lost, ...rest } = args.data as Record<string, unknown>
-      return write({ ...args, data: rest })
+      const written = await write(args)
+      // A save in another locale reverts the field once our write has returned, so the
+      // verification re-read no longer finds it.
+      docs.ca = { ...docs.ca, subtitle: null }
+      return written
     })
 
     await expect(

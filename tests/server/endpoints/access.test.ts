@@ -1,7 +1,7 @@
 import { docAccessOperation, docAccessOperationGlobal } from 'payload'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { settings, endpoint, request, recent } from './helpers.js'
+import { settings, endpoint, request, recent, requester } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -15,6 +15,15 @@ vi.mock('payload', async importOriginal => ({
   })),
 }))
 
+const allowed = { fields: true, read: true, update: true } as never
+
+beforeEach(() => {
+  vi.mocked(docAccessOperation).mockReset()
+  vi.mocked(docAccessOperation).mockResolvedValue(allowed)
+  vi.mocked(docAccessOperationGlobal).mockReset()
+  vi.mocked(docAccessOperationGlobal).mockResolvedValue(allowed)
+})
+
 describe('authorisation per document', () => {
   const body = {
     collection: 'events',
@@ -22,18 +31,16 @@ describe('authorisation per document', () => {
     sourceLocale: 'es',
     targetLocales: ['ca'],
   }
-  const permissions = (read: boolean, update: boolean): void => {
-    vi.mocked(docAccessOperation).mockResolvedValueOnce({
-      fields: {},
-      read,
-      update,
-    } as never)
+  // The endpoint checks read access in the source locale and update access in each
+  // target locale, one `docAccessOperation` call per locale.
+  const permissions = (
+    byLocale: Record<string, { read: boolean; update: boolean }>,
+  ): void => {
+    vi.mocked(docAccessOperation).mockImplementation(
+      async ({ req }) =>
+        ({ fields: {}, ...byLocale[(req as { locale?: string }).locale!] }) as never,
+    )
   }
-
-  beforeEach(() => {
-    vi.mocked(docAccessOperation).mockClear()
-    vi.mocked(docAccessOperationGlobal).mockClear()
-  })
 
   it('hands the plugin access function the document and the operation', async () => {
     const access = vi.fn().mockResolvedValue(true)
@@ -56,7 +63,12 @@ describe('authorisation per document', () => {
   })
 
   it('asks Payload whether the request user may read and update that very document', async () => {
-    const { req } = request({ body })
+    const { req } = request({ body: { ...body, targetLocales: ['ca', 'en'] } })
+    const locales: (string | undefined)[] = []
+    vi.mocked(docAccessOperation).mockImplementation(async args => {
+      locales.push((args as { req: { locale?: string } }).req.locale)
+      return { fields: true, read: true, update: true } as never
+    })
 
     await endpoint(settings(), '/translator/translate')(req)
 
@@ -65,10 +77,17 @@ describe('authorisation per document', () => {
       collection: req.payload.collections.events,
       id: 'e1',
     })
+    // Read is checked in the source locale, update in each target; the request's own
+    // locale is restored afterwards.
+    expect(locales).toEqual(['es', 'ca', 'en'])
+    expect(req.locale).toBe('es')
   })
 
   it('answers 404 to a translate the user may not read, without queueing', async () => {
-    permissions(false, true)
+    permissions({
+      es: { read: false, update: true },
+      ca: { read: true, update: true },
+    })
     const { req, queue, create } = request({ body })
 
     const response = await endpoint(settings(), '/translator/translate')(req)
@@ -80,7 +99,10 @@ describe('authorisation per document', () => {
   })
 
   it('answers 403 to a translate the user may read but not update', async () => {
-    permissions(true, false)
+    permissions({
+      es: { read: true, update: false },
+      ca: { read: true, update: false },
+    })
     const { req, queue } = request({ body })
 
     const response = await endpoint(settings(), '/translator/translate')(req)
@@ -90,8 +112,22 @@ describe('authorisation per document', () => {
     expect(queue).not.toHaveBeenCalled()
   })
 
+  it('answers 403 when the user may update some target locales but not all', async () => {
+    permissions({
+      es: { read: true, update: true },
+      ca: { read: true, update: true },
+      en: { read: true, update: false },
+    })
+    const { req, queue } = request({ body: { ...body, targetLocales: ['ca', 'en'] } })
+
+    const response = await endpoint(settings(), '/translator/translate')(req)
+
+    expect(response.status).toBe(403)
+    expect(queue).not.toHaveBeenCalled()
+  })
+
   it('answers 404 to the status of a document the user may not read', async () => {
-    permissions(false, false)
+    permissions({ es: { read: false, update: false } })
     const { req } = request({ query: 'collection=events&id=e1' })
 
     const response = await endpoint(settings(), '/translator/status')(req)
@@ -100,7 +136,7 @@ describe('authorisation per document', () => {
   })
 
   it('checks a global through its own access operation', async () => {
-    vi.mocked(docAccessOperationGlobal).mockResolvedValueOnce({
+    vi.mocked(docAccessOperationGlobal).mockResolvedValue({
       fields: {},
       read: true,
       update: false,
@@ -183,7 +219,7 @@ describe('translator endpoints for a global', () => {
           sourceLocale: 'es',
           targetLocales: ['ca'],
           overwriteEdited: false,
-          fieldPermissions: true,
+          requester,
         },
       }),
     )

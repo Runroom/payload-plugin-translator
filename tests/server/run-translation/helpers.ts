@@ -24,6 +24,17 @@ export const fields = [
 
 export type Docs = Record<string, Record<string, unknown>>
 
+export const requester = { collection: 'users', id: 'u1' }
+
+// What `payload.findByID` answers for the requester; `null` for a document.
+export const userOf = (args: {
+  collection?: string
+  id?: string
+}): Record<string, unknown> | null =>
+  args.collection === requester.collection && args.id === requester.id
+    ? { id: requester.id, email: 'u1@x' }
+    : null
+
 export const fakePayload = ({
   docs,
   record = null,
@@ -46,8 +57,9 @@ export const fakePayload = ({
     collections,
     logger: { error: vi.fn(), warn: vi.fn() },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
-    findByID: vi.fn(async ({ locale }: { locale: string }) =>
-      structuredClone(state[locale]),
+    findByID: vi.fn(
+      async (args: { collection?: string; locale: string }) =>
+        userOf(args) ?? structuredClone(state[args.locale]),
     ),
     find: vi.fn(async () => ({ docs: record ? [{ id: 'r1', ...record }] : [] })),
     create: records,
@@ -77,6 +89,7 @@ export const input = {
   sourceLocale: 'es',
   targetLocales: ['ca'],
   overwriteEdited: false,
+  requester,
 }
 
 export type SavedRecord = Record<string, unknown> & { targetLocale: string }
@@ -136,7 +149,10 @@ export const statefulPayload = (
     },
     logger: { error: vi.fn(), warn: vi.fn() },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
-    findByID: vi.fn(async ({ locale }: { locale: string }) => ({ ...docs[locale] })),
+    findByID: vi.fn(
+      async (args: { collection?: string; locale: string }) =>
+        userOf(args) ?? { ...docs[args.locale] },
+    ),
     find: vi.fn(
       async ({ where }: { where: { and: Record<string, { equals: string }>[] } }) => ({
         docs: saved.filter(item => item.targetLocale === localeOf(where)),
