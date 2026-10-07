@@ -216,6 +216,49 @@ describe('runTranslation from a locale other than the default', () => {
     })
   })
 
+  it('translates again a text still ours when it was last translated from another locale', async () => {
+    const { payload, update, records } = fakePayload({
+      docs: { ...threeLocales, en: { id: 'e1', title: 'Curso' } },
+      record: {
+        status: 'done',
+        sourceLocale: 'en',
+        fields: {
+          title: { source: fingerprint(['Curso']), output: fingerprint(['Curs']) },
+        },
+      },
+    })
+
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+
+    expect(update.mock.calls.map(([args]) => [args.locale, args.data.title])).toEqual([
+      ['ca', '[ca] Curso'],
+    ])
+    expect(records.mock.calls.at(-1)![0].data).toMatchObject({
+      status: 'done',
+      sourceLocale: 'es',
+    })
+  })
+
+  it('counts a record without source locale as translated from the default locale', async () => {
+    const { payload, update, records } = fakePayload({
+      docs: { ...threeLocales },
+      record: {
+        status: 'done',
+        fields: {
+          title: { source: fingerprint(['Curso']), output: fingerprint(['Curs']) },
+        },
+      },
+    })
+
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+
+    expect(update).not.toHaveBeenCalled()
+    expect(records.mock.calls.at(-1)![0].data).toMatchObject({
+      status: 'done',
+      sourceLocale: 'es',
+    })
+  })
+
   it('does not record a source on a locale that failed', async () => {
     const { payload, records } = fakePayload({ docs: { ...threeLocales } })
 

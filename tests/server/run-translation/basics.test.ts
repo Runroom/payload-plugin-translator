@@ -1,3 +1,4 @@
+import type { Payload } from 'payload'
 import { JobCancelledError, NotFound } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -484,5 +485,79 @@ describe('runTranslation when nothing needs translating', () => {
     const saved = records.mock.calls.at(-1)![0].data as Record<string, unknown>
     expect(saved.status).toBe('done')
     expect(saved).not.toHaveProperty('translatedAt')
+  })
+})
+
+// The provider saves a correction in the target before answering, as an editor would while
+// the translation runs.
+const editingTarget = (
+  payload: Payload,
+  data: Record<string, unknown>,
+): TranslatorSettings => {
+  const fake = fakeProvider()
+  return {
+    ...settings,
+    provider: {
+      translate: async request => {
+        await payload.update({
+          collection: 'events',
+          id: 'e1',
+          locale: 'ca',
+          data,
+        } as never)
+        return fake.translate(request)
+      },
+    },
+  }
+}
+
+describe('runTranslation and a target edited while the provider runs', () => {
+  it('keeps the field the editor filled instead of overwriting it, even when asked to overwrite', async () => {
+    const { payload, update, records } = fakePayload({
+      docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: null } },
+    })
+
+    await runTranslation({
+      isLastAttempt: true,
+      payload,
+      input: { ...input, overwriteEdited: true },
+      settings: editingTarget(payload, { title: 'Curs corregit' }),
+    })
+
+    expect(update.mock.calls.map(([args]) => args.data)).toEqual([
+      { title: 'Curs corregit' },
+    ])
+    const data = records.mock.calls.at(-1)![0].data
+    expect(data).toMatchObject({ status: 'done', kept: ['title'] })
+    expect(data.fields.title).toEqual({ source: fingerprint(['Curso']), output: null })
+    expect(data).not.toHaveProperty('translatedAt')
+  })
+
+  it('still writes the planned fields the editor did not touch', async () => {
+    const { payload, update, records } = fakePayload({
+      docs: {
+        es: { id: 'e1', title: 'Curso', subtitle: 'Sub' },
+        ca: { id: 'e1', title: null, subtitle: null },
+      },
+    })
+
+    await runTranslation({
+      isLastAttempt: true,
+      payload,
+      input,
+      settings: editingTarget(payload, { title: 'Curs corregit' }),
+    })
+
+    expect(update.mock.calls.map(([args]) => args.data)).toEqual([
+      { title: 'Curs corregit' },
+      { subtitle: '[ca] Sub' },
+    ])
+    const data = records.mock.calls.at(-1)![0].data
+    expect(data).toMatchObject({ status: 'done', kept: ['title'] })
+    expect(data.fields).toEqual({
+      title: { source: fingerprint(['Curso']), output: null },
+      subtitle: { source: fingerprint(['Sub']), output: fingerprint(['[ca] Sub']) },
+    })
+    expect(data.translatedAt).toEqual(expect.any(String))
   })
 })

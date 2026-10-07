@@ -33,7 +33,7 @@ const VOID_TYPES = new Set(['linebreak', 'tab', 'inlineBlock'])
 const escapeText = (text: string): string =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
 
-const unescapeText = (text: string): string =>
+export const unescapeText = (text: string): string =>
   text.replaceAll('&lt;', '<').replaceAll('&amp;', '&')
 
 export const isLexicalState = (value: unknown): value is LexicalState =>
@@ -98,12 +98,26 @@ const idOf = (value: unknown): unknown => (isRecord(value) ? value.id : value) ?
 
 const MAX_DECODES = 10
 
+// A url Payload saves as-is: one its `validateUrl` accepts (absolute, or a path, fragment,
+// query, mailto or tel).
+const isLiteralUrl = (url: string): boolean => {
+  if (/^([/#?]|mailto:|tel:)/.test(url)) return true
+  try {
+    new URL(url)
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Payload's link `beforeChange` runs `encodeURIComponent` on every url its `validateUrl`
 // rejects (`example.com/x`, `http://localhost:3000/x`), even when it is already encoded, so
-// each save adds a layer (`%2F` → `%252F`). The fingerprint compares the fully decoded url;
-// otherwise a freshly written target would never match when read back.
+// each save adds a layer (`%2F` → `%252F`). Those are compared fully decoded; otherwise a
+// freshly written target would never match when read back. A url Payload keeps as-is is
+// compared literally, so `https://example.com/a%2Fb` and `https://example.com/a/b` differ.
 const canonicalUrl = (url: unknown): unknown => {
   if (typeof url !== 'string') return url ?? null
+  if (isLiteralUrl(url)) return url
   let current = url
   for (let i = 0; i < MAX_DECODES; i++) {
     let next: string

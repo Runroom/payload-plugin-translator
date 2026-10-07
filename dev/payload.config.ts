@@ -14,6 +14,9 @@ import { translatorPlugin } from '../src/index.js'
  */
 export const databaseFile = join(tmpdir(), `payload-translator-${randomUUID()}.db`)
 
+/** The provider the plugin uses, exposed so an integration test can spy on it. */
+export const provider = fakeProvider()
+
 export default buildConfig({
   secret: process.env.PAYLOAD_SECRET ?? 'payload-plugin-translator-dev-secret',
   // Outside production the adapter pushes the schema on connect, which also creates the
@@ -57,7 +60,7 @@ export default buildConfig({
     translatorPlugin({
       collections: { posts: {}, pages: {} },
       globals: { footer: {} },
-      provider: fakeProvider(),
+      provider,
       access: ({ req }) => Boolean(req.user),
     }),
   ],
