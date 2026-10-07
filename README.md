@@ -411,6 +411,11 @@ a "Version Packages" pull request; merging it publishes the new version to npm w
 provenance and creates the git tag and GitHub release. Nobody publishes from a local
 machine.
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md). To report a vulnerability, follow
+[SECURITY.md](./SECURITY.md).
+
 ## License
 
 MIT © Runroom
