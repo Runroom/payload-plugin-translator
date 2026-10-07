@@ -2,11 +2,7 @@
 
 import { useState } from 'react'
 
-import type {
-  EntityQuery,
-  TranslateRequestBody,
-  TranslatorErrorCode,
-} from '../shared/api.js'
+import type { EntityQuery, TranslateRequestBody } from '../shared/api.js'
 import { TRANSLATE_PATH } from '../shared/api.js'
 import type { Message, TranslatorKey } from './messages.js'
 import type { TranslateOptionValues } from './options.js'
@@ -19,26 +15,12 @@ const REFUSALS: Record<number, TranslatorKey> = {
   503: 'translator:notConfigured',
 }
 
-const errorCodeOf = async (
-  response: Response,
-): Promise<TranslatorErrorCode | undefined> => {
-  try {
-    const error = ((await response.json()) as { error?: unknown } | null)?.error
-    return typeof error === 'string' ? (error as TranslatorErrorCode) : undefined
-  } catch {
-    return undefined
-  }
-}
-
-// A 500 `records-failed` means the job did start but its records could not be saved, so the
-// status cannot follow it. Other 5xx responses and network failures mean it did not start.
-const refusalOf = async (response: Response): Promise<Message | null> => {
+// A 5xx response or a network failure means the translation did not start: the server
+// releases the document before answering 500.
+const refusalOf = (response: Response): Message | null => {
   if (response.ok) return null
   const key = REFUSALS[response.status]
-  if (key) return { key }
-  if (response.status === 500 && (await errorCodeOf(response)) === 'records-failed')
-    return { key: 'translator:recordsFailed' }
-  return { key: 'translator:requestFailed' }
+  return { key: key ?? 'translator:requestFailed' }
 }
 
 const requestTranslation = async ({

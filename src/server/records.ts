@@ -2,6 +2,8 @@ import type { CollectionConfig, Payload } from 'payload'
 
 import type { FieldHashes } from '../core/plan.js'
 import type { EntityRef } from './entity.js'
+import { transactionOption } from './entity.js'
+import type { TransactionID } from './transaction.js'
 
 /**
  * Slug of the hidden collection that keeps one translation record per entity and target
@@ -97,12 +99,14 @@ const whereKey = (key: RecordKey): Record<string, unknown> => ({
 export const findRecord = async (
   payload: Payload,
   key: RecordKey,
+  transactionID?: TransactionID,
 ): Promise<TranslationRecord | null> => {
   const { docs } = await payload.find({
     collection: RECORDS_SLUG as never,
     where: whereKey(key) as never,
     limit: 1,
     depth: 0,
+    ...transactionOption(transactionID),
   })
   return (docs[0] as unknown as TranslationRecord | undefined) ?? null
 }
@@ -124,11 +128,13 @@ const updateRecord = async (
   payload: Payload,
   id: string,
   data: object,
+  transactionID?: TransactionID,
 ): Promise<void> => {
   await payload.update({
     collection: RECORDS_SLUG as never,
     id,
     data: data as never,
+    ...transactionOption(transactionID),
   })
 }
 
@@ -137,31 +143,36 @@ export const markRevalidated = (
   { id, revalidatedAt }: { id: string; revalidatedAt: string },
 ): Promise<void> => updateRecord(payload, id, { revalidatedAt })
 
+// With `transactionID` the save joins that transaction, so it commits or rolls back with
+// the document write it belongs to.
 export const saveRecord = async (
   payload: Payload,
   {
     key,
     data,
+    transactionID,
   }: {
     key: RecordKey
     data: Partial<Omit<TranslationRecord, 'id' | 'updatedAt'>>
+    transactionID?: TransactionID
   },
 ): Promise<void> => {
-  const existing = await findRecord(payload, key)
+  const existing = await findRecord(payload, key, transactionID)
   if (existing) {
-    await updateRecord(payload, existing.id, data)
+    await updateRecord(payload, existing.id, data, transactionID)
     return
   }
   try {
     await payload.create({
       collection: RECORDS_SLUG as never,
       data: { ...key, ...data } as never,
+      ...transactionOption(transactionID),
     })
   } catch (error) {
     // The unique index rejects the create if another process created the record between
     // the lookup and the write. Updating that record is enough.
-    const winner = await findRecord(payload, key)
+    const winner = await findRecord(payload, key, transactionID)
     if (!winner) throw error
-    await updateRecord(payload, winner.id, data)
+    await updateRecord(payload, winner.id, data, transactionID)
   }
 }

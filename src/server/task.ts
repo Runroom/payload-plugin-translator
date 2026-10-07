@@ -8,26 +8,15 @@ import type { TranslatorSettings } from './settings.js'
 /** Slug of the job task that translates one document into its target locales. */
 export const TRANSLATE_TASK_SLUG = 'translateDocument'
 
-// Two simultaneous POSTs can both get past the 409 and queue two jobs for the same
-// document. Sharing a key stops Payload from running them at once (this requires
-// `jobs.enableConcurrencyControl`, which the plugin turns on), and the second job then
-// finds everything up to date and makes no provider calls.
-export const concurrencyKeyOf = ({
-  entityType,
-  collectionSlug,
-  docId,
-}: Pick<RawTranslationJobInput, 'entityType' | 'collectionSlug' | 'docId'>): string =>
-  `${entityType === 'global' ? 'global' : 'collection'}:${collectionSlug}:${docId}`
-
+// Two jobs for the same document never run at once because `POST /translate` only queues
+// one while it holds the document's lock (`translation-locks`), and the job checks that
+// it still owns that lock on every attempt. Payload's own `concurrency` option is not
+// used: its check is not atomic across runners.
 export const translateTask = (
   settings: TranslatorSettings,
 ): TaskConfig<{ input: RawTranslationJobInput; output: object }> => ({
   slug: TRANSLATE_TASK_SLUG,
   label: 'Translate document',
-  concurrency: {
-    exclusive: true,
-    key: ({ input }) => concurrencyKeyOf(input),
-  },
   inputSchema: [
     { name: 'entityType', type: 'select', options: ['collection', 'global'] },
     { name: 'collectionSlug', type: 'text', required: true },
@@ -38,6 +27,8 @@ export const translateTask = (
     { name: 'overwriteEdited', type: 'checkbox' },
     // Who asked: the job reads and writes as this user, with their access at run time.
     { name: 'requester', type: 'json', required: true },
+    // The document lock the request took; the job cancels itself if it no longer owns it.
+    { name: 'lockToken', type: 'text', required: true },
   ],
   retries: JOB_RETRIES,
   handler: async ({ input, job, req }) => {

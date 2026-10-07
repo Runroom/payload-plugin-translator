@@ -3,6 +3,7 @@ import type { Field, Payload, TypedUser } from 'payload'
 import { TRANSLATOR_WRITE_CONTEXT } from '../context.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
 import { localizationOf } from './settings.js'
+import type { TransactionID } from './transaction.js'
 
 type EntityType = 'collection' | 'global'
 
@@ -18,7 +19,10 @@ export type EntityRef = { entityType: EntityType; collectionSlug: string; docId:
 
 type Doc = Record<string, unknown>
 
-type ReadArgs = { locale: string; withFallback: boolean }
+// With `transactionID` the call joins that Payload transaction instead of running alone.
+type Transactional = { transactionID?: TransactionID }
+
+type ReadArgs = Transactional & { locale: string; withFallback: boolean }
 
 export type Entity = {
   fields: Field[]
@@ -27,7 +31,7 @@ export type Entity = {
   find: (args: { locale: string }) => Promise<Doc | null>
   // Returns the document as saved. A `beforeChange` hook (a `formatSlug`) can rewrite what
   // was sent, and the fingerprints must be taken from the saved value.
-  write: (args: { locale: string; data: Doc }) => Promise<Doc>
+  write: (args: Transactional & { locale: string; data: Doc }) => Promise<Doc>
   // Date of the latest published version; `null` without drafts or if never published.
   lastPublishedAt: () => Promise<string | null>
 }
@@ -71,6 +75,13 @@ const updatedAtOf = (result: unknown): string | null => {
 const fallbackOption = (withFallback: boolean): { fallbackLocale?: false } =>
   withFallback ? {} : { fallbackLocale: false }
 
+// Payload joins an operation to a transaction through `req.transactionID`; the rest of the
+// request is built by the Local API as usual.
+export const transactionOption = (
+  transactionID: TransactionID | undefined,
+): { req?: { transactionID: TransactionID } } =>
+  transactionID === undefined ? {} : { req: { transactionID } }
+
 /** Who the entity is read and written as; without a user, with the Local API's default access. */
 export type EntityOptions = { user?: TypedUser }
 
@@ -81,6 +92,16 @@ const accessOption = (
   user: TypedUser | undefined,
 ): { overrideAccess?: false; user?: TypedUser } =>
   user ? { overrideAccess: false, user } : {}
+
+const readOptions = (
+  { locale, withFallback, transactionID }: ReadArgs,
+  user: TypedUser | undefined,
+): Doc => ({
+  locale,
+  ...fallbackOption(withFallback),
+  ...accessOption(user),
+  ...transactionOption(transactionID),
+})
 
 const collectionEntity = (
   payload: Payload,
@@ -105,12 +126,7 @@ const collectionEntity = (
   return {
     fields: config.fields,
     writesLive: !drafts,
-    read: async ({ locale, withFallback }) =>
-      (await findByID({
-        locale,
-        ...fallbackOption(withFallback),
-        ...accessOption(user),
-      })) as Doc,
+    read: async args => (await findByID(readOptions(args, user))) as Doc,
     find: async ({ locale }) => {
       try {
         return (await findByID({ locale, disableErrors: true })) as Doc | null
@@ -119,13 +135,14 @@ const collectionEntity = (
         throw error
       }
     },
-    write: async ({ locale, data }) =>
+    write: async ({ locale, data, transactionID }) =>
       (await payload.update({
         collection: collectionSlug as never,
         id: docId,
         locale: locale as never,
         ...draftOption(drafts),
         ...accessOption(user),
+        ...transactionOption(transactionID),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
@@ -164,15 +181,15 @@ const globalEntity = (
   return {
     fields: config.fields,
     writesLive: !drafts,
-    read: ({ locale, withFallback }) =>
-      findGlobal({ locale, ...fallbackOption(withFallback), ...accessOption(user) }),
+    read: args => findGlobal(readOptions(args, user)),
     find: ({ locale }) => findGlobal({ locale }),
-    write: async ({ locale, data }) =>
+    write: async ({ locale, data, transactionID }) =>
       (await payload.updateGlobal({
         slug: slug as never,
         locale: locale as never,
         ...draftOption(drafts),
         ...accessOption(user),
+        ...transactionOption(transactionID),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },

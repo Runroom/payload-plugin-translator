@@ -19,10 +19,15 @@ export const provider = fakeProvider()
 
 export default buildConfig({
   secret: process.env.PAYLOAD_SECRET ?? 'payload-plugin-translator-dev-secret',
-  // Outside production the adapter pushes the schema on connect, which also creates the
-  // `concurrencyKey` column that the plugin's `jobs.enableConcurrencyControl` needs.
+  // Outside production the adapter pushes the schema on connect. SQLite transactions are
+  // off unless `transactionOptions` is set, and libsql runs each one on its own connection
+  // without a busy timeout, so concurrent writes would fail with SQLITE_BUSY: they are only
+  // turned on for the test that needs a real rollback (`PAYLOAD_SQLITE_TRANSACTIONS=1`).
   db: sqliteAdapter({
     client: { url: process.env.DATABASE_URL ?? `file:${databaseFile}` },
+    ...(process.env.PAYLOAD_SQLITE_TRANSACTIONS === '1'
+      ? { transactionOptions: {} }
+      : {}),
   }),
   editor: lexicalEditor(),
   // Nothing here needs generated files or the Next admin.

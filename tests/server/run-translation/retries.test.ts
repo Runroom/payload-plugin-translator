@@ -268,7 +268,7 @@ describe('runTranslation against a target that changes while translating', () =>
     const write = writes.getMockImplementation()!
     let raced = false
     writes.mockImplementation(async args => {
-      if (args.collection === RECORDS_SLUG || raced) return write(args)
+      if (args.collection !== 'events' || raced) return write(args)
       raced = true
       const written = await write(args)
       // A save in another locale reverts the field once our write has returned, so the

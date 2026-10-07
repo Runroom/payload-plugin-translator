@@ -18,8 +18,8 @@ First release.
 - Endpoints `POST /api/translator/translate` and `GET /api/translator/status`, guarded by
   the plugin's `access`, the document's own read and update access, and field-level read
   and update access for translated fields.
-- The `translation-records` collection and the `translateDocument` job task, with retries
-  and per-document concurrency control.
+- The `translation-records` and `translation-locks` collections and the
+  `translateDocument` job task, with retries and an atomic per-document lock.
 - `onLiveWrite`, to revalidate the public site after a translation of an entity without
   drafts.
 - `isTranslatorWrite` and `TRANSLATOR_WRITE_CONTEXT`, to recognise the translator's writes

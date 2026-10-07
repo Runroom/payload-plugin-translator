@@ -44,8 +44,6 @@ export const en: typeof es = {
     forbidden: "You don't have permission to edit this content.",
     notFound: 'This content no longer exists or you do not have access to it.',
     badRequest: 'The request is not valid for this content.',
-    recordsFailed:
-      'The translation was started, but its status could not be recorded. Reload in a few minutes.',
     statusUnavailable:
       'The translation status could not be checked. Press Retry to check it again.',
     statusUnavailableShort: 'Status unknown',

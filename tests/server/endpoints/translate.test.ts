@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { settings, endpoint, request, recent, requester } from './helpers.js'
+import { BUSY_WINDOW_MS } from '../../../src/server/limits.js'
+import { settings, endpoint, request, recent, requester, lockedSince } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -68,6 +69,7 @@ describe('POST /translator/translate', () => {
         targetLocales: ['ca', 'en'],
         overwriteEdited: false,
         requester,
+        lockToken: expect.any(String),
       },
     })
     expect(run).toHaveBeenCalledWith({
@@ -109,6 +111,7 @@ describe('POST /translator/translate', () => {
   it('answers 409 when another locale of the same document is busy', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(0),
       records: [recent('en', 'running')],
     })
 
@@ -133,16 +136,45 @@ describe('POST /translator/translate', () => {
     expect(logError).toHaveBeenCalledWith(expect.objectContaining({ err: error }))
   })
 
-  it('does not leave a queued record behind when queueing the job fails', async () => {
-    const { req, create } = request({
+  it('marks the records failed, releases the lock and answers 500 when queueing the job fails', async () => {
+    const { req, create, run, locks, logError } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
       queueError: new Error('db down'),
     })
 
-    await expect(endpoint(settings(), '/translator/translate')(req)).rejects.toThrow(
-      'db down',
+    const response = await endpoint(settings(), '/translator/translate')(req)
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'failed' })
+    expect(create.mock.calls.map(([args]) => args.data.status)).toEqual([
+      'queued',
+      'failed',
+    ])
+    expect(locks.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'translation-locks' }),
     )
-    expect(create).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.objectContaining({ message: 'db down' }) }),
+    )
+  })
+
+  it('saves the queued records before queueing the job', async () => {
+    const order: string[] = []
+    const { req, create, queue } = request({
+      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+    })
+    create.mockImplementation(() => {
+      order.push('record')
+    })
+    queue.mockImplementation(() => {
+      order.push('job')
+      return { id: 'job-1' }
+    })
+
+    await endpoint(settings(), '/translator/translate')(req)
+
+    expect(order).toEqual(['record', 'job'])
   })
 
   it('answers 400 to a body that is not valid JSON', async () => {
@@ -184,6 +216,7 @@ describe('POST /translator/translate', () => {
         sourceLocale: 'es',
         targetLocales: ['ca', 'en'],
       },
+      lock: lockedSince(0),
       records: [recent('ca', 'running')],
     })
 
@@ -197,12 +230,31 @@ describe('POST /translator/translate', () => {
   it('treats a recent queued record as busy', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(0),
       records: [recent('ca', 'queued')],
     })
 
     const response = await endpoint(settings(), '/translator/translate')(req)
 
     expect(response.status).toBe(409)
+    expect(queue).not.toHaveBeenCalled()
+  })
+
+  it('reports the requested locales busy when the lock is held but no record is pending yet', async () => {
+    const { req, queue } = request({
+      body: {
+        collection: 'events',
+        id: 'e1',
+        sourceLocale: 'es',
+        targetLocales: ['ca', 'en'],
+      },
+      lock: lockedSince(0),
+    })
+
+    const response = await endpoint(settings(), '/translator/translate')(req)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'busy', busy: ['ca', 'en'] })
     expect(queue).not.toHaveBeenCalled()
   })
 
@@ -286,6 +338,7 @@ describe('POST /translator/translate', () => {
   it('answers 409 when a translation for that locale is already in progress', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(0),
       records: [
         {
           id: 'r1',
@@ -302,9 +355,10 @@ describe('POST /translator/translate', () => {
     expect(queue).not.toHaveBeenCalled()
   })
 
-  it('does not treat a run abandoned long ago as in progress', async () => {
-    const { req, queue } = request({
+  it('takes over a lock abandoned long ago instead of treating it as in progress', async () => {
+    const { req, queue, locks } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(BUSY_WINDOW_MS + 1),
       records: [
         {
           id: 'r1',
@@ -318,13 +372,20 @@ describe('POST /translator/translate', () => {
     const response = await endpoint(settings(), '/translator/translate')(req)
 
     expect(response.status).toBe(202)
+    expect(locks.delete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          and: [{ id: { equals: 'l-other' } }, { token: { equals: 'other-token' } }],
+        },
+      }),
+    )
     expect(queue).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('POST /translator/translate when the records cannot be saved', () => {
-  it('still runs the queued job and answers 500 so the client knows the lock is uncertain', async () => {
-    const { req, run, logError } = request({
+  it('queues nothing, releases the lock and answers a plain 500', async () => {
+    const { req, run, queue, locks, logError } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
       createError: new Error('db down'),
     })
@@ -332,10 +393,10 @@ describe('POST /translator/translate when the records cannot be saved', () => {
     const response = await endpoint(settings(), '/translator/translate')(req)
 
     expect(response.status).toBe(500)
-    expect(await response.json()).toEqual({ error: 'records-failed', queued: ['ca'] })
-    expect(run).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: { in: ['job-1'] } } }),
-    )
+    expect(await response.json()).toEqual({ error: 'failed' })
+    expect(queue).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(locks.delete).toHaveBeenCalledTimes(1)
     expect(logError).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.any(Error) }),
     )

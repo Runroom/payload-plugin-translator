@@ -2,8 +2,37 @@ import type { Payload } from 'payload'
 import { vi } from 'vitest'
 
 import { fakeProvider } from '../../../src/exports/testing.js'
+import { LOCKS_SLUG } from '../../../src/server/lock.js'
 import { RECORDS_SLUG } from '../../../src/server/records.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
+
+/** The token of the lock `input` carries; the fake payloads hold that lock for the job. */
+export const LOCK_TOKEN = 'lock-token'
+
+export type LockDoc = { id: string; token: string; updatedAt: string }
+
+export const heldLock = (token = LOCK_TOKEN): LockDoc => ({
+  id: 'l1',
+  token,
+  updatedAt: new Date().toISOString(),
+})
+
+type Call = { collection?: string }
+
+// Answers the lock collection's `find` and `update` with `lock` (the conditional update
+// matches only when its token is the job's) and routes every other call to `fallback`.
+export const withLock =
+  <A, R>(
+    fallback: (args: A) => Promise<R>,
+    lock: LockDoc | null = heldLock(),
+  ): ((args: A) => Promise<R | { docs: LockDoc[]; errors: never[] }>) =>
+  async args => {
+    const call = args as Call & { where?: { and?: { token?: { equals: string } }[] } }
+    if (call.collection !== LOCKS_SLUG) return fallback(args)
+    const token = call.where?.and?.map(item => item.token?.equals).find(Boolean)
+    const held = lock && (token === undefined || token === lock.token) ? [lock] : []
+    return { docs: held, errors: [] }
+  }
 
 export const fields = [
   { name: 'title', type: 'text', localized: true },
@@ -38,39 +67,52 @@ export const userOf = (args: {
 export const fakePayload = ({
   docs,
   record = null,
+  lock = heldLock(),
   collections = {
     events: { config: { fields, versions: { drafts: { autosave: false } } } },
   },
 }: {
   docs: Docs
   record?: Record<string, unknown> | null
+  // The lock in the database; by default the one the job owns.
+  lock?: LockDoc | null
   collections?: Record<string, unknown>
 }): {
   payload: Payload
   update: ReturnType<typeof vi.fn>
   records: ReturnType<typeof vi.fn>
+  unlock: ReturnType<typeof vi.fn>
 } => {
   const update = vi.fn().mockResolvedValue({})
   const records = vi.fn().mockResolvedValue({})
+  const unlock = vi.fn().mockResolvedValue({})
   const state: Docs = { ...docs }
   const payload = {
     collections,
     logger: { error: vi.fn(), warn: vi.fn() },
+    // No `beginTransaction`: the write and its record are saved one by one, as on an
+    // adapter without transactions.
+    db: {},
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(
       async (args: { collection?: string; locale: string }) =>
         userOf(args) ?? structuredClone(state[args.locale]),
     ),
-    find: vi.fn(async () => ({ docs: record ? [{ id: 'r1', ...record }] : [] })),
+    find: vi.fn(
+      withLock(async () => ({ docs: record ? [{ id: 'r1', ...record }] : [] }), lock),
+    ),
     create: records,
-    update: vi.fn(async (args: { collection: string; locale: string; data: object }) => {
-      if (args.collection === RECORDS_SLUG) return records(args)
-      await update(args)
-      state[args.locale] = { ...state[args.locale], ...args.data }
-      return structuredClone(state[args.locale])
-    }),
+    update: vi.fn(
+      withLock(async (args: { collection: string; locale: string; data: object }) => {
+        if (args.collection === RECORDS_SLUG) return records(args)
+        await update(args)
+        state[args.locale] = { ...state[args.locale], ...args.data }
+        return structuredClone(state[args.locale])
+      }, lock),
+    ),
+    delete: unlock,
   } as unknown as Payload
-  return { payload, update, records }
+  return { payload, update, records, unlock }
 }
 
 export const settings: TranslatorSettings = {
@@ -90,6 +132,7 @@ export const input = {
   targetLocales: ['ca'],
   overwriteEdited: false,
   requester,
+  lockToken: LOCK_TOKEN,
 }
 
 export type SavedRecord = Record<string, unknown> & { targetLocale: string }
@@ -134,34 +177,42 @@ export const statefulPayload = (
   const localeOf = (where: { and: Record<string, { equals: string }>[] }): string =>
     where.and.find(item => 'targetLocale' in item)!.targetLocale!.equals
   const update = vi.fn(
-    async (args: { collection: string; id: string; locale: string; data: object }) => {
-      if (args.collection !== RECORDS_SLUG) {
-        docs[args.locale] = { ...docs[args.locale], ...args.data }
-        return { ...docs[args.locale] }
-      }
-      const record = saved.find(item => item.id === args.id)!
-      Object.assign(record, args.data)
-    },
+    withLock(
+      async (args: { collection: string; id: string; locale: string; data: object }) => {
+        if (args.collection !== RECORDS_SLUG) {
+          docs[args.locale] = { ...docs[args.locale], ...args.data }
+          return { ...docs[args.locale] }
+        }
+        const record = saved.find(item => item.id === args.id)!
+        Object.assign(record, args.data)
+      },
+    ),
   )
   const payload = {
     collections: {
       events: { config: { fields, versions: { drafts: { autosave: false } } } },
     },
     logger: { error: vi.fn(), warn: vi.fn() },
+    // No `beginTransaction`: the write and its record are saved one by one, as on an
+    // adapter without transactions.
+    db: {},
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(
       async (args: { collection?: string; locale: string }) =>
         userOf(args) ?? { ...docs[args.locale] },
     ),
     find: vi.fn(
-      async ({ where }: { where: { and: Record<string, { equals: string }>[] } }) => ({
-        docs: saved.filter(item => item.targetLocale === localeOf(where)),
-      }),
+      withLock(
+        async ({ where }: { where: { and: Record<string, { equals: string }>[] } }) => ({
+          docs: saved.filter(item => item.targetLocale === localeOf(where)),
+        }),
+      ),
     ),
     create: vi.fn(async ({ data }: { data: SavedRecord }) => {
       saved.push({ ...data, id: `r-${data.targetLocale}` })
     }),
     update,
+    delete: vi.fn(),
   } as unknown as Payload
   return { payload, update }
 }

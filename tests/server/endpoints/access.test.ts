@@ -1,7 +1,7 @@
 import { docAccessOperation, docAccessOperationGlobal } from 'payload'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { settings, endpoint, request, recent, requester } from './helpers.js'
+import { settings, endpoint, request, recent, requester, lockedSince } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -220,6 +220,7 @@ describe('translator endpoints for a global', () => {
           targetLocales: ['ca'],
           overwriteEdited: false,
           requester,
+          lockToken: expect.any(String),
         },
       }),
     )
@@ -248,6 +249,7 @@ describe('translator endpoints for a global', () => {
   it('answers 409 while the global is being translated', async () => {
     const { req, queue } = request({
       body: { global: 'footer', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(0),
       records: [recent('ca', 'running')],
     })
 
