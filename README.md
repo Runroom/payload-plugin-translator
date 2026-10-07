@@ -274,6 +274,12 @@ kept. The "Also overwrite texts edited by hand" option (`overwriteEdited: true`)
 only way to force it, and it only affects those kept fields: fields already up to date are
 not translated again.
 
+The target is read again right before writing. A field someone edits while the provider is
+still translating is kept too, even with `overwriteEdited`: that option covers the edits
+that existed when the translation was requested. Translating from a different source
+locale than last time re-translates every field that still holds the translator's output,
+even when the source text is identical.
+
 ### Fingerprints
 
 The `translation-records` collection keeps, per entity and target locale, two fingerprints

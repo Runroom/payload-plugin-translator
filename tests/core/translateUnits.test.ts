@@ -222,6 +222,51 @@ describe('translateUnits', () => {
     expect(translate).toHaveBeenCalledTimes(2)
   })
 
+  it('treats a rich text unit whose marks came back without text as broken and retries it', async () => {
+    const translate = vi
+      .fn()
+      .mockResolvedValueOnce({ u0: '<1></1>' })
+      .mockResolvedValueOnce({ u0: '<1>Avís important</1>' })
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([['body#0', '<1>Important warning</1>']]),
+      withMarks: id => id.includes('#'),
+    })
+
+    expect(translate).toHaveBeenCalledTimes(2)
+    expect(result.get('body#0')).toBe('<1>Avís important</1>')
+  })
+
+  it('fails with MarkError when a rich text unit stays without text after the retry', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '<1> </1>' })
+
+    await expect(
+      translateUnits({
+        ...base,
+        provider: { translate },
+        units: new Map([['body#0', '<1>Important warning</1>']]),
+        withMarks: id => id.includes('#'),
+      }),
+    ).rejects.toThrow(MarkError)
+    expect(translate).toHaveBeenCalledTimes(2)
+  })
+
+  it('accepts a rich text unit whose only text is an escaped character', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '<1>&lt;</1>' })
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([['body#0', '<1>&lt;</1>']]),
+      withMarks: id => id.includes('#'),
+    })
+
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(result.get('body#0')).toBe('<1>&lt;</1>')
+  })
+
   it('does not call the provider without units', async () => {
     const translate = vi.fn()
 

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { provider } from '../../dev/payload.config.js'
 import type { Harness } from './helpers.js'
 import {
   boot,
@@ -137,6 +138,37 @@ describe('translating a collection with drafts', () => {
     )
     const overwritten = await status(harness, { collection: 'posts', id })
     expect(localeStatus(overwritten, 'es')).toMatchObject({ kept: 0, stale: false })
+  })
+
+  it('keeps a correction saved in the target while the provider runs', async () => {
+    const id = await createPost('Hurried post')
+    const original = provider.translate
+    const translate = vi
+      .spyOn(provider, 'translate')
+      .mockImplementation(async request => {
+        await editDraft(id, { locale: 'es', data: { title: 'Título corregido' } })
+        return original(request)
+      })
+
+    try {
+      await translateAndWait(harness, {
+        collection: 'posts',
+        id,
+        sourceLocale: 'en',
+        targetLocales: ['es'],
+        overwriteEdited: true,
+      })
+    } finally {
+      translate.mockRestore()
+    }
+
+    const draft = await readPost(id, { locale: 'es', draft: true })
+    expect(draft.title).toBe('Título corregido')
+    expect(firstParagraph(draft.body)[0]).toMatchObject({ text: '[es] Read the ' })
+    const record = await findRecord(harness, { docId: id, targetLocale: 'es' })
+    expect(record).toMatchObject({ status: 'done', kept: ['title'] })
+    expect(record?.fields?.title).toEqual({ source: expect.any(String), output: null })
+    expect(record?.fields?.body?.output).toEqual(expect.any(String))
   })
 
   it('reports a translation as stale once its source changes', async () => {

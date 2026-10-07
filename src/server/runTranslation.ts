@@ -4,9 +4,9 @@ import { JobCancelledError } from 'payload'
 import type { EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf, targetLocalesOf } from './entity.js'
 import { ConcurrentEditError, isUnrecoverable, PreviousFailure } from './errors.js'
-import type { LocaleRun, Outcome, TranslationJobInput } from './localeRun.js'
+import type { LocaleRun, Outcome, Previous, TranslationJobInput } from './localeRun.js'
 import { execute } from './localeRun.js'
-import type { RecordKey } from './records.js'
+import type { RecordKey, TranslationRecord } from './records.js'
 import { findRecord, recordKeyOf, saveRecord } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
@@ -76,6 +76,12 @@ const recordFailure = async (
   })
 }
 
+// A record without `sourceLocale` was translated from the default locale.
+const previousOf = (payload: Payload, record: TranslationRecord | null): Previous => ({
+  fields: record?.fields ?? {},
+  sourceLocale: record?.sourceLocale ?? defaultLocaleOf(payload),
+})
+
 const translateLocale = async ({
   run,
   isLastAttempt,
@@ -98,7 +104,7 @@ const translateLocale = async ({
       return { error: new PreviousFailure(record.error ?? `${targetLocale} failed`) }
     }
     await saveRecord(payload, { key, data: { status: 'running', error: null } })
-    await saveDone(run, key, await execute(run, record?.fields ?? {}))
+    await saveDone(run, key, await execute(run, previousOf(payload, record)))
     return null
   } catch (error) {
     await recordFailure(run, key, { error, isLastAttempt })

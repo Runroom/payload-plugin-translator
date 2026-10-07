@@ -185,30 +185,63 @@ const saveVerified = async ({
   }
 }
 
+// A planned field whose target no longer holds what it held at planning time was edited
+// while the provider ran. It is kept like a hand edit found at planning time, whatever
+// `overwriteEdited`: that option covers the edits that existed when the editor asked.
+const dropEdited = ({
+  run,
+  plan,
+  writes,
+  targetDoc,
+}: {
+  run: LocaleRun
+  plan: TranslationPlan
+  writes: PathWrite[]
+  targetDoc: Record<string, unknown>
+}): PathWrite[] => {
+  const current = new Map(
+    translatablesOf(run, targetDoc).map(value => [value.path, fingerprintOf(value)]),
+  )
+  return writes.filter(write => {
+    if ((current.get(write.path) ?? null) === plan.targetHashes[write.path]) return true
+    const source = plan.translate.find(value => value.path === write.path)!
+    plan.kept.push(write.path)
+    plan.hashes[write.path] = { source: fingerprintOf(source)!, output: null }
+    return false
+  })
+}
+
 // Re-read the target right before writing. The provider calls happen between planning and
 // this point, and groups are sent whole, so a stale snapshot would revert non-localized
-// data that an import or an editor changed in the meantime.
+// data that an import or an editor changed in the meantime. An edit between this read and
+// the write can still be lost, but that window is milliseconds, not the provider call.
 const writeTranslation = async ({
   run,
+  plan,
   writes,
 }: {
   run: LocaleRun
-  writes: FieldWrite[]
-}): Promise<Record<string, unknown>> => {
+  plan: TranslationPlan
+  writes: PathWrite[]
+}): Promise<{ writes: PathWrite[]; written: Record<string, unknown> | null }> => {
   const { entity, targetLocale } = run
   const targetDoc = await entity.read({ locale: targetLocale, withFallback: false })
-  return entity.write({
+  const left = dropEdited({ run, plan, writes, targetDoc })
+  if (left.length === 0) return { writes: left, written: null }
+  const written = await entity.write({
     locale: targetLocale,
-    data: buildUpdateData({ targetDoc, writes }),
+    data: buildUpdateData({ targetDoc, writes: left }),
   })
+  return { writes: left, written }
 }
 
 export type Outcome = { hashes: FieldHashes; kept: string[]; translated: boolean }
 
-export const execute = async (
-  run: LocaleRun,
-  previous: FieldHashes,
-): Promise<Outcome> => {
+// What the record keeps from the last run: its fingerprints and the locale they were
+// translated from.
+export type Previous = { fields: FieldHashes; sourceLocale: string }
+
+export const execute = async (run: LocaleRun, previous: Previous): Promise<Outcome> => {
   const { entity, input, sourceLocale, targetLocale } = run
   const [sourceDoc, targetDoc] = await Promise.all([
     entity.read({ locale: sourceLocale, withFallback: true }),
@@ -217,17 +250,22 @@ export const execute = async (
   const plan = planTranslation({
     source: translatablesOf(run, sourceDoc),
     target: translatablesOf(run, targetDoc),
-    previous,
+    previous: previous.fields,
     overwriteEdited: input.overwriteEdited,
+    sourceLocale,
+    previousSourceLocale: previous.sourceLocale,
   })
-  keepHiddenHashes({ run, sourceDoc, plan, previous })
+  keepHiddenHashes({ run, sourceDoc, plan, previous: previous.fields })
   if (plan.translate.length === 0) {
     return { hashes: plan.hashes, kept: plan.kept, translated: false }
   }
 
-  const writes = await translatePlan({ plan, run })
-  const written = await writeTranslation({ run, writes })
+  const translated = await translatePlan({ plan, run })
+  const { writes, written } = await writeTranslation({ run, plan, writes: translated })
+  if (written === null) {
+    return { hashes: plan.hashes, kept: plan.kept, translated: false }
+  }
   const hashes = hashesOf({ plan, writes, written, run })
-  await verifyWrite({ run, hashes, previous })
+  await verifyWrite({ run, hashes, previous: previous.fields })
   return { hashes: { ...plan.hashes, ...hashes }, kept: plan.kept, translated: true }
 }

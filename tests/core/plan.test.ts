@@ -96,6 +96,46 @@ describe('planTranslation', () => {
     expect(plan.translate.map(value => value.path)).toEqual(['title'])
   })
 
+  it('re-translates a field still holding its last output when the source locale changed', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Gift')],
+      target: [field('title', 'cadeau')],
+      previous: { title: { source: hashOf('Gift'), output: hashOf('cadeau') } },
+      overwriteEdited: false,
+      sourceLocale: 'de',
+      previousSourceLocale: 'en',
+    })
+
+    expect(plan.translate.map(value => value.path)).toEqual(['title'])
+    expect(plan.hashes).toEqual({})
+  })
+
+  it('still keeps a target edited by hand when the source locale changed', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Gift')],
+      target: [field('title', 'Corrigé à la main')],
+      previous: { title: { source: hashOf('Gift'), output: hashOf('cadeau') } },
+      overwriteEdited: false,
+      sourceLocale: 'de',
+      previousSourceLocale: 'en',
+    })
+
+    expect(plan.translate).toEqual([])
+    expect(plan.kept).toEqual(['title'])
+  })
+
+  it('records the target fingerprint seen at planning time for every planned field', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Curso'), field('subtitle', 'Sub')],
+      target: [field('title', null), field('subtitle', 'Old')],
+      previous: { subtitle: { source: hashOf('Antes'), output: hashOf('Old') } },
+      overwriteEdited: false,
+    })
+
+    expect(plan.translate.map(value => value.path)).toEqual(['title', 'subtitle'])
+    expect(plan.targetHashes).toEqual({ title: null, subtitle: hashOf('Old') })
+  })
+
   it('translates a new agenda row while leaving the existing ones alone', () => {
     const plan = planTranslation({
       source: [
@@ -352,6 +392,36 @@ describe('fingerprintOf a richText', () => {
 
     expect(fingerprintOf(twice)).toEqual(fingerprintOf(once))
     expect(fingerprintOf(other)).not.toEqual(fingerprintOf(once))
+  })
+
+  it('compares literally a url Payload keeps as-is, so an encoded slash is a change', () => {
+    const encoded = richText(
+      paragraph([text('Más info '), link('https://example.com/a%2Fb')]),
+    )
+    const plain = richText(
+      paragraph([text('Más info '), link('https://example.com/a/b')]),
+    )
+    const encodedPath = richText(paragraph([text('Más info '), link('/a%2Fb')]))
+    const plainPath = richText(paragraph([text('Más info '), link('/a/b')]))
+
+    expect(fingerprintOf(encoded)).not.toEqual(fingerprintOf(plain))
+    expect(fingerprintOf(encodedPath)).not.toEqual(fingerprintOf(plainPath))
+  })
+
+  it('decodes only the urls Payload encodes on save', () => {
+    const bare = richText(paragraph([text('Más info '), link('example.com/x')]))
+    const once = richText(paragraph([text('Más info '), link('example.com%2Fx')]))
+    const twice = richText(paragraph([text('Más info '), link('example.com%252Fx')]))
+    const local = richText(
+      paragraph([text('Más info '), link('http://localhost:3000/x')]),
+    )
+    const localEncoded = richText(
+      paragraph([text('Más info '), link('http%3A%2F%2Flocalhost%3A3000%2Fx')]),
+    )
+
+    expect(fingerprintOf(once)).toEqual(fingerprintOf(bare))
+    expect(fingerprintOf(twice)).toEqual(fingerprintOf(bare))
+    expect(fingerprintOf(localEncoded)).toEqual(fingerprintOf(local))
   })
 
   it('keeps a url with a stray percent sign comparable', () => {

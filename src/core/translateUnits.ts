@@ -1,6 +1,6 @@
 import type { TranslationProvider } from '../provider/types.js'
-import { MarkError } from './lexical.js'
-import { marksMatch } from './marks.js'
+import { MarkError, unescapeText } from './lexical.js'
+import { marksMatch, TOKEN } from './marks.js'
 
 const MAX_UNITS = 40
 const MAX_CHARS = 12_000
@@ -64,10 +64,18 @@ const translateAll = async (
   return result
 }
 
+// The text of a marked unit, without its marks: `<1></1>` has valid marks and is not a
+// blank string, but writing it would empty the paragraph.
+const textOf = (unit: string): string => unescapeText(unit.replaceAll(TOKEN, ''))
+
 // A blank answer for a unit with text would empty the target field. For a plain text unit
 // nothing else catches it, since there are no marks to compare.
-const isBlankFor = (source: string, text: string): boolean =>
-  source.trim() !== '' && text.trim() === ''
+const isBlankFor = (source: string, text: string, hasMarks: boolean): boolean => {
+  const [sourceText, resultText] = hasMarks
+    ? [textOf(source), textOf(text)]
+    : [source, text]
+  return sourceText.trim() !== '' && resultText.trim() === ''
+}
 
 const brokenIn = (
   { withMarks = (): boolean => true }: Args,
@@ -76,10 +84,11 @@ const brokenIn = (
 ): [string, string][] =>
   [...units].filter(([id, source]) => {
     const text = result.get(id)
+    const hasMarks = withMarks(id)
     return (
       text === undefined ||
-      isBlankFor(source, text) ||
-      (withMarks(id) && !marksMatch(source, text))
+      isBlankFor(source, text, hasMarks) ||
+      (hasMarks && !marksMatch(source, text))
     )
   })
 
