@@ -7,8 +7,7 @@ import type { OnLiveWrite } from './liveWrites.js'
 export type TranslatorAccessOperation = 'translate' | 'status'
 
 // `ref` and `operation` are extras: a function that only looks at `req` keeps working.
-// There is no `ref` when deciding access to the records collection, which belongs to no
-// document.
+// There is no `ref` when the status query names no valid entity.
 export type TranslatorAccess = (args: {
   req: PayloadRequest
   ref?: EntityRef

@@ -2,7 +2,6 @@ import type { CollectionConfig, Payload } from 'payload'
 
 import type { FieldHashes } from '../core/plan.js'
 import type { EntityRef } from './entity.js'
-import type { TranslatorAccess } from './settings.js'
 
 export const RECORDS_SLUG = 'translation-records'
 
@@ -21,16 +20,14 @@ export type TranslationRecord = {
   updatedAt: string
 }
 
-// Only the plugin writes, through the Local API, which skips `access`: over REST nobody can
-// create, change or delete a record (that would bypass the lock or forge the fingerprints).
+// Only the plugin touches the records, through the Local API, which skips `access`. Over
+// REST and GraphQL nobody may create, change or delete one (that would bypass the lock or
+// forge the fingerprints), nor read one: a record names a document and keeps its errors,
+// and the plugin's `access` knows nothing of the document's own. `GET /status` is the way
+// in, and it checks both.
 const DENY = (): boolean => false
 
-export const recordsCollection = (access: TranslatorAccess): CollectionConfig => {
-  const allowed = ({
-    req,
-  }: {
-    req: Parameters<TranslatorAccess>[0]['req']
-  }): Promise<boolean> => Promise.resolve(access({ req, operation: 'status' }))
+export const recordsCollection = (): CollectionConfig => {
   return {
     slug: RECORDS_SLUG,
     labels: {
@@ -38,7 +35,7 @@ export const recordsCollection = (access: TranslatorAccess): CollectionConfig =>
       plural: { en: 'Translation records', es: 'Registros de traducción' },
     },
     admin: { hidden: true },
-    access: { read: allowed, create: DENY, update: DENY, delete: DENY },
+    access: { read: DENY, create: DENY, update: DENY, delete: DENY },
     indexes: [
       { fields: ['entityType', 'collectionSlug', 'docId', 'targetLocale'], unique: true },
     ],

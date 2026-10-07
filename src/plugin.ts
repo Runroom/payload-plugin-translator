@@ -271,7 +271,7 @@ export const translatorPlugin =
             ? withControl({ collection, blocks: config.blocks ?? [] })
             : collection,
         ),
-        recordsCollection(settings.access),
+        recordsCollection(),
       ],
       globals: (config.globals ?? []).map(global =>
         settings.globals[global.slug]

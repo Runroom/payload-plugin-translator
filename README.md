@@ -148,9 +148,8 @@ address).
 Two layers decide who can translate a document:
 
 1. **The plugin's `access`**, called as `access({ req, ref, operation })`, where
-   `operation` is `'translate'` (`POST /translate`) or `'status'` (`GET /status` and
-   reading the records collection) and `ref` is `{ entityType, collectionSlug, docId }`
-   (absent when deciding access to the records collection or when the status query has no
+   `operation` is `'translate'` (`POST /translate`) or `'status'` (`GET /status`) and
+   `ref` is `{ entityType, collectionSlug, docId }` (absent when the status query has no
    valid entity). The endpoints are custom endpoints, outside Payload's collection access
    control, so put every check you need here (a role, a second factor…). When it returns
    `false` the endpoints answer 403.
@@ -160,9 +159,11 @@ Two layers decide who can translate a document:
    endpoints); without **update** permission `POST /translate` answers 403, since
    translating writes to the document (and, without drafts, publishes it).
 
-The `translation-records` collection is hidden in the admin and **read-only over REST and
-GraphQL**: `read` follows the plugin's `access` with `operation: 'status'`, and `create`,
-`update` and `delete` are always denied. Only the plugin writes to it.
+The `translation-records` collection is hidden in the admin and **closed over REST and
+GraphQL**: `read`, `create`, `update` and `delete` are always denied. A record names a
+document and keeps its errors, so reading it goes through `GET /status`, which checks both
+the plugin's `access` and the document's own. Only the plugin, through the Local API,
+reads and writes it.
 
 The job writes through the **Local API with its default `overrideAccess`** and **without a
 user**, because it runs outside the request that queued it; the permission checks above
