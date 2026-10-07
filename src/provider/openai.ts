@@ -26,8 +26,13 @@ export type OpenAIClientLike = {
 
 const NOT_RETRYABLE = new Set([400, 401, 403, 404, 422])
 
-const languageName = (code: string): string =>
-  new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+const languageName = (code: string): string => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
 
 const systemPrompt = ({
   sourceLocale,
@@ -123,11 +128,12 @@ export const openAIProvider = ({
 }): TranslationProvider => ({
   translate: async request => {
     const keys = Object.keys(request.units)
+    const instructions = systemPrompt(request)
     let response: CreateResult
     try {
       response = await client.responses.create({
         model,
-        instructions: systemPrompt(request),
+        instructions,
         input: JSON.stringify(request.units),
         store: false,
         text: {

@@ -57,7 +57,36 @@ const requestTranslation = async ({
 export type SendTranslation = (request: {
   targetLocales: string[]
   options: TranslateOptionValues
-}) => Promise<void>
+}) => Promise<boolean>
+
+type Visit = { key: string | null; translated: string[]; notice: Message | null }
+
+// What one document's visit has started and been told. It is keyed by the document: if
+// the control is reused for another one without remounting, the previous document's
+// locales must not turn "ready" there, nor its notice show.
+const useVisit = (
+  key: string | null,
+): {
+  translated: string[]
+  notice: Message | null
+  setNotice: (notice: Message | null) => void
+  addTranslated: (locales: string[]) => void
+} => {
+  const [visit, setVisit] = useState<Visit>({ key, translated: [], notice: null })
+  const current = visit.key === key ? visit : { key, translated: [], notice: null }
+  const update = (change: (visit: Visit) => Partial<Visit>): void =>
+    setVisit(previous => {
+      const base = previous.key === key ? previous : { key, translated: [], notice: null }
+      return { ...base, ...change(base) }
+    })
+  return {
+    translated: current.translated,
+    notice: current.notice,
+    setNotice: notice => update(() => ({ notice })),
+    addTranslated: locales =>
+      update(base => ({ translated: [...new Set([...base.translated, ...locales])] })),
+  }
+}
 
 // `onLaunched` and `onRefused` tell the summary which batch to follow; `translated`
 // accumulates the locales started during this visit, which become "ready" when they
@@ -86,8 +115,7 @@ export const useTranslateRequest = ({
   send: SendTranslation
 } => {
   const [submitting, setSubmitting] = useState(false)
-  const [translated, setTranslated] = useState<string[]>([])
-  const [notice, setNotice] = useState<Message | null>(null)
+  const visit = useVisit(target ? JSON.stringify(target) : null)
 
   const send: SendTranslation = async ({ targetLocales, options }) => {
     setSubmitting(true)
@@ -101,22 +129,23 @@ export const useTranslateRequest = ({
       },
     })
     setSubmitting(false)
-    setNotice(failure)
+    visit.setNotice(failure)
     if (failure) {
       onRefused()
     } else {
       markQueued(targetLocales)
       onLaunched(targetLocales)
-      setTranslated(current => [...new Set([...current, ...targetLocales])])
+      visit.addTranslated(targetLocales)
     }
     await refresh()
+    return !failure
   }
 
   return {
     submitting,
-    translated,
-    notice,
-    clearNotice: () => setNotice(null),
+    translated: visit.translated,
+    notice: visit.notice,
+    clearNotice: () => visit.setNotice(null),
     send,
   }
 }

@@ -79,6 +79,15 @@ describe('openAIProvider', () => {
     })
   })
 
+  it('uses an invalid source locale code in the prompt without failing', async () => {
+    const client = clientReturning(JSON.stringify({ u0: 'Curs', u1: '<1>Hola</1>' }))
+    const provider = openAIProvider({ apiKey: 'k', model: 'm', client })
+
+    await provider.translate({ ...request, sourceLocale: 'pt_BR' })
+
+    expect(client.responses.create.mock.calls[0]![0].instructions).toContain('from pt_BR')
+  })
+
   it('rejects a reply with missing or extra keys as retryable', async () => {
     const provider = openAIProvider({
       apiKey: 'k',

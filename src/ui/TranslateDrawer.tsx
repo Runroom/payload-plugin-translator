@@ -140,8 +140,7 @@ const DrawerBody = ({
   const chosen =
     selected ?? status.locales.filter(item => !isUpToDate(item)).map(item => item.locale)
   const translate = async (targetLocales: string[]): Promise<void> => {
-    await send({ targetLocales, options })
-    setSelected(null)
+    if (await send({ targetLocales, options })) setSelected(null)
   }
 
   return (

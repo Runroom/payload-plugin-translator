@@ -80,6 +80,7 @@ const useStatusState = (): {
   seen: string[]
   apply: (next: StatusResponse | null) => void
   queueLocales: (locales: string[]) => void
+  resetSeen: () => void
 } => {
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [seen, setSeen] = useState<string[]>([])
@@ -105,7 +106,8 @@ const useStatusState = (): {
     },
     [see],
   )
-  return { status, seen, apply, queueLocales }
+  const resetSeen = useCallback((): void => setSeen([]), [])
+  return { status, seen, apply, queueLocales, resetSeen }
 }
 
 // Each request gets a number when it is sent and is only applied if it is later than the
@@ -156,6 +158,13 @@ const usePolling = ({
   next: () => () => boolean
 }): { stalled: boolean; resume: () => void } => {
   const [failedPolls, setFailedPolls] = useState(0)
+  const previousURL = useRef(url)
+  useEffect(() => {
+    if (previousURL.current !== url) {
+      previousURL.current = url
+      setFailedPolls(0)
+    }
+  }, [url])
   const stalled = failedPolls >= MAX_FAILED_POLLS
   useEffect(() => {
     if (!url || !isRunning(status) || stalled) return
@@ -195,13 +204,18 @@ export const useTranslatorStatus = ({
   stalled: boolean
   retry: () => void
 } => {
-  const { status, seen, apply, queueLocales } = useStatusState()
+  const { status, seen, apply, queueLocales, resetSeen } = useStatusState()
   const next = useSequence()
   const url = target
     ? `${apiBase}/translator/status?${new URLSearchParams(target)}`
     : null
 
   const queuedAt = useRef(0)
+  // Another document: what was seen running on the previous one says nothing here.
+  useEffect(() => {
+    resetSeen()
+    queuedAt.current = 0
+  }, [url, resetSeen])
 
   // If it fails, polling the queued locales goes on and brings the real status. A response
   // requested before the last `markQueued` predates the queued records and is discarded.

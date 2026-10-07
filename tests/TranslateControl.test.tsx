@@ -1138,6 +1138,55 @@ describe('TranslateControl: translating', () => {
     expect(drawer().textContent).toContain(`translator:${key}`)
   })
 
+  it('keeps the manually selected locale after a busy refusal', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          respond(status([doneCa, row({ locale: 'en', state: 'done' })])),
+        )
+        .mockResolvedValueOnce(
+          respond(status([doneCa, row({ locale: 'en', state: 'done' })])),
+        )
+        .mockResolvedValueOnce(
+          respond(status([doneCa, row({ locale: 'en', state: 'done' })])),
+        )
+        .mockResolvedValueOnce(respond({ error: 'busy' }, 409))
+        .mockResolvedValue(respond(status())),
+    )
+    render(<TranslateControl />)
+    await openDrawer()
+    const english = within(drawer()).getByRole('checkbox', { name: 'English' })
+    await userEvent.click(english)
+    await submit()
+    await waitFor(() => expect(drawer().textContent).toContain('translator:busy'))
+    expect(checked(english)).toBe(true)
+  })
+
+  it('clears a ready notice when the document identity changes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    locale.code = 'ca'
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+      .mockResolvedValueOnce(
+        respond(status([row({ locale: 'ca', state: 'done', translatedAt: 'x' })])),
+      )
+      .mockResolvedValue(
+        respond(status([row({ locale: 'ca', state: 'done', translatedAt: 'x' })])),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const view = render(<TranslateControl />)
+    await screen.findByText('translator:translatingThisLocale')
+    await advance()
+    expect(await screen.findByText('translator:readyShort')).toBeTruthy()
+    documentInfo.id = 'e2'
+    view.rerender(<TranslateControl />)
+    await settle()
+    expect(screen.queryByText('translator:readyShort')).toBeNull()
+  })
+
   it('shows a generic error when the translate request is rejected', async () => {
     vi.stubGlobal(
       'fetch',

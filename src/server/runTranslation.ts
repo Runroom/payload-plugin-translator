@@ -96,15 +96,22 @@ const recordFailure = async (
 const translateLocale = async ({
   run,
   isLastAttempt,
+  jobCreatedAt,
 }: {
   run: LocaleRun
   isLastAttempt: boolean
+  jobCreatedAt?: string | Date
 }): Promise<{ error: unknown } | null> => {
   const { payload, input, targetLocale } = run
   const key = keyOf(input, targetLocale)
   try {
     const record = await findRecord(payload, key)
-    if (record?.status === 'failed') {
+    if (
+      record?.status === 'failed' &&
+      (!jobCreatedAt ||
+        !record.updatedAt ||
+        Date.parse(String(record.updatedAt)) >= Date.parse(String(jobCreatedAt)))
+    ) {
       return { error: new PreviousFailure(record.error ?? `${targetLocale} failed`) }
     }
     await saveRecord(payload, { key, data: { status: 'running', error: null } })
@@ -203,11 +210,13 @@ export const runTranslation = async ({
   input,
   settings,
   isLastAttempt,
+  jobCreatedAt,
 }: {
   payload: Payload
   input: RawTranslationJobInput
   settings: TranslatorSettings
   isLastAttempt: boolean
+  jobCreatedAt?: string | Date
 }): Promise<void> => {
   const { run, targets } = await prepare({ payload, input, settings })
   const errors: unknown[] = []
@@ -215,6 +224,7 @@ export const runTranslation = async ({
     const failure = await translateLocale({
       run: { ...run, targetLocale },
       isLastAttempt,
+      jobCreatedAt,
     })
     if (failure) errors.push(failure.error)
   }
