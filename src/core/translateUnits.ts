@@ -1,6 +1,6 @@
-import { MarkError } from '../core/lexical.js'
-import { marksMatch } from '../core/marks.js'
-import type { TranslationProvider } from './types.js'
+import type { TranslationProvider } from '../provider/types.js'
+import { MarkError } from './lexical.js'
+import { marksMatch } from './marks.js'
 
 const MAX_UNITS = 40
 const MAX_CHARS = 12_000

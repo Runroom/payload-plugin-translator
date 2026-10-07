@@ -2,13 +2,13 @@ import type { Payload, SanitizedFieldsPermissions } from 'payload'
 
 import type { FieldWrite } from '../core/apply.js'
 import { buildUpdateData } from '../core/apply.js'
-import { fingerprintOf, unitsOf } from '../core/fingerprint.js'
-import { extractContainers, isLexicalState, replaceContainers } from '../core/lexical.js'
+import { fingerprintOf } from '../core/fingerprint.js'
 import type { FieldHashes, TranslationPlan } from '../core/plan.js'
 import { planTranslation } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
+import { translateUnits } from '../core/translateUnits.js'
 import type { TranslatableValue } from '../core/types.js'
-import { translateUnits } from '../provider/translateUnits.js'
+import { translatedValue, unitIdsOf } from '../core/units.js'
 import type { TranslationProvider } from '../provider/types.js'
 import type { Entity, EntityRef } from './entity.js'
 import type { RecordKey } from './records.js'
@@ -20,26 +20,6 @@ export type TranslationJobInput = EntityRef & {
   targetLocales: string[]
   overwriteEdited: boolean
   fieldPermissions?: SanitizedFieldsPermissions
-}
-
-const unitIdsOf = (value: TranslatableValue): [string, string][] => {
-  if (value.kind === 'text') return [[value.path, unitsOf(value)[0] ?? '']]
-  const containers = isLexicalState(value.value) ? extractContainers(value.value) : []
-  return containers.map((text, index) => [`${value.path}#${index}`, text])
-}
-
-const translatedValue = (
-  value: TranslatableValue,
-  result: Map<string, string>,
-): unknown => {
-  if (value.kind === 'text') return result.get(value.path)
-  if (!isLexicalState(value.value)) return value.value
-  const count = extractContainers(value.value).length
-  const texts = Array.from(
-    { length: count },
-    (_, index) => result.get(`${value.path}#${index}`) ?? '',
-  )
-  return replaceContainers(value.value, texts)
 }
 
 type PathWrite = FieldWrite & { path: string }

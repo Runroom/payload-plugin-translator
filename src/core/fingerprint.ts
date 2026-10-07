@@ -1,17 +1,8 @@
 import { createHash } from 'node:crypto'
 
-import {
-  extractContainers,
-  hasNonTextContent,
-  isLexicalState,
-  structureOf,
-} from './lexical.js'
+import { hasNonTextContent, isLexicalState, structureOf } from './lexical.js'
 import type { TranslatableValue } from './types.js'
-
-export const unitsOf = ({ kind, value }: TranslatableValue): string[] => {
-  if (kind === 'richText') return isLexicalState(value) ? extractContainers(value) : []
-  return typeof value === 'string' && value.trim() !== '' ? [value.trim()] : []
-}
+import { unitsOf } from './units.js'
 
 export const fingerprint = (units: string[]): string | null =>
   units.length === 0
