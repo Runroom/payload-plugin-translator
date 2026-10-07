@@ -13,3 +13,18 @@ minimumReleaseAgeIgnoreMissingTime: true
 minimumReleaseAgeExclude:
   - lexical
   - '@lexical/*'
+  # Security fixes published less than a week before they were pinned (see `overrides`).
+  - http-cache-semantics@4.3.0
+  - source-map-js@1.2.2
+
+# Patched versions of vulnerable transitive dependencies (Dependabot alerts). Dependabot
+# cannot raise these itself because the parents pin them.
+overrides:
+  'undici@>=7.0.0 <7.29.1': 7.29.1
+  'dompurify@<3.4.16': 3.4.16
+  'source-map-js@<1.2.2': 1.2.2
+  'esbuild@<0.25.0': 0.25.12
+  'http-cache-semantics@<=4.2.0': 4.3.0
+  # braces has no patched release (GHSA-vfj7-8cjw-p6xm); it only came in through
+  # chokidar 3 (via sass), and chokidar 4 dropped it.
+  'chokidar@<4.0.0': 4.0.3
