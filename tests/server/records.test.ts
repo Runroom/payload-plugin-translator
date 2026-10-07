@@ -99,6 +99,21 @@ describe('records of a global', () => {
     })
   })
 
+  it('lists every record of the entity instead of one page', async () => {
+    const { payload } = fakePayload({ finds: [[]], create: vi.fn() })
+
+    await findRecords(payload, {
+      entityType: 'collection',
+      collectionSlug: 'events',
+      docId: 'e1',
+    })
+
+    expect(vi.mocked(payload.find).mock.calls[0]![0]).toMatchObject({
+      pagination: false,
+      depth: 0,
+    })
+  })
+
   it('keys the unique index on the entity type too', () => {
     const collection = recordsCollection()
     const entityType = collection.fields.find(
