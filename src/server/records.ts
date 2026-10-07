@@ -23,6 +23,8 @@ export type TranslationRecord = {
   error: string | null
   translatedAt: string | null
   revalidatedAt?: string | null
+  // Token of the document lock held by the request or job that last wrote the record.
+  lockToken?: string | null
   updatedAt: string
 }
 
@@ -71,6 +73,9 @@ export const recordsCollection = (): CollectionConfig => {
       { name: 'translatedAt', type: 'date' },
       // When `onLiveWrite` was last called for a translation written without drafts.
       { name: 'revalidatedAt', type: 'date' },
+      // Which lock holder wrote the record last: a job trusts a `failed` record as its own
+      // earlier attempt only when the token is the one it was given.
+      { name: 'lockToken', type: 'text' },
     ],
   }
 }
@@ -169,6 +174,10 @@ export const saveRecord = async (
       ...transactionOption(transactionID),
     })
   } catch (error) {
+    // Inside a transaction Payload has already rolled it back on the failed `create`, and
+    // the adapter would run the fallback on the plain connection, committing a record for
+    // a write that no longer exists. Only the caller's rollback is right then.
+    if (transactionID !== undefined) throw error
     // The unique index rejects the create if another process created the record between
     // the lookup and the write. Updating that record is enough.
     const winner = await findRecord(payload, key, transactionID)

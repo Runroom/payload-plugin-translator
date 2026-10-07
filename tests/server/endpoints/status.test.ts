@@ -3,7 +3,8 @@ import { docAccessOperation } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { fingerprintOf } from '../../../src/core/fingerprint.js'
-import { settings, endpoint, request, recent, requester } from './helpers.js'
+import { BUSY_WINDOW_MS } from '../../../src/server/limits.js'
+import { settings, endpoint, request, recent, requester, lockedSince } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -462,6 +463,34 @@ describe('GET /translator/status with an expired run', () => {
       expect(create).not.toHaveBeenCalled()
     },
   )
+
+  it('keeps an old queued record pending while the document lock is live', async () => {
+    // A long job refreshes the lock, not the records of the locales still waiting.
+    const { req } = request({
+      query: 'collection=events&id=e1',
+      lock: lockedSince(1_000),
+      records: [{ ...recent('ca', 'queued'), updatedAt: '2020-01-01T00:00:00.000Z' }],
+    })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.locales[1]).toMatchObject({ locale: 'ca', state: 'queued', error: null })
+  })
+
+  it('reports an old queued record as interrupted once the lock has expired too', async () => {
+    const { req } = request({
+      query: 'collection=events&id=e1',
+      lock: lockedSince(BUSY_WINDOW_MS + 1),
+      records: [{ ...recent('ca', 'queued'), updatedAt: '2020-01-01T00:00:00.000Z' }],
+    })
+
+    const body = await (await endpoint(settings(), '/translator/status')(req)).json()
+
+    expect(body.locales[1]).toMatchObject({
+      state: 'failed',
+      error: expect.stringContaining('interrupted'),
+    })
+  })
 
   it('keeps a recent running record as running', async () => {
     const { req } = request({

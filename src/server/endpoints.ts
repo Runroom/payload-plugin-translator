@@ -1,7 +1,7 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
 import type { TranslateQueuedBody, TranslatorErrorBody } from '../shared/api.js'
-import { STATUS_PATH, TRANSLATE_PATH } from '../shared/api.js'
+import { isPendingState, STATUS_PATH, TRANSLATE_PATH } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
 import { entityOf, GLOBAL_DOC_ID, localesOf, targetLocalesOf } from './entity.js'
@@ -9,7 +9,7 @@ import type { Requester } from './localeRun.js'
 import { acquireLock, releaseLock } from './lock.js'
 import { findRecords, saveRecord } from './records.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
-import { buildStatus, isBusy } from './status.js'
+import { buildStatus } from './status.js'
 import { TRANSLATE_TASK_SLUG } from './task.js'
 
 type TranslateBody = {
@@ -67,11 +67,20 @@ type Translation = {
 
 // The records are written before the job is queued: a job claimed by the cron can finish
 // (and be deleted) before this request gets to its records, and writing `queued` after
-// that would hide a finished translation for the busy window.
-const saveQueued = async ({ req, body, targets }: Translation): Promise<void> => {
+// that would hide a finished translation for the busy window. They carry the lock's token
+// so the job can tell its own records from an older job's.
+const saveQueued = async ({
+  req,
+  body,
+  targets,
+  lockToken,
+}: Translation): Promise<void> => {
   for (const targetLocale of targets) {
     const key = { ...body.ref, targetLocale }
-    await saveRecord(req.payload, { key, data: { status: 'queued', error: null } })
+    await saveRecord(req.payload, {
+      key,
+      data: { status: 'queued', error: null, lockToken },
+    })
   }
 }
 
@@ -148,8 +157,8 @@ const queueTranslation = async (translation: Translation): Promise<Response> => 
   return json(queued, 202)
 }
 
-// The locales reported busy are those with a pending record; when the lock is held but no
-// record is pending yet (the holder is between taking it and saving them), the requested
+// Called only while another request holds the lock, so every pending record is busy,
+// however old its heartbeat. Before the holder has saved its records, the requested
 // targets are reported instead.
 const busyLocales = async (
   req: PayloadRequest,
@@ -157,7 +166,9 @@ const busyLocales = async (
   targets: string[],
 ): Promise<string[]> => {
   const records = await findRecords(req.payload, body.ref)
-  const busy = records.filter(isBusy).map(item => item.targetLocale)
+  const busy = records
+    .filter(item => isPendingState(item.status))
+    .map(item => item.targetLocale)
   return busy.length > 0 ? busy : targets
 }
 

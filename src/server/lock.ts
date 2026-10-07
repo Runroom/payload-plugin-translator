@@ -60,7 +60,11 @@ const whereHeld = (ref: EntityRef, token: string): Record<string, unknown> => ({
   and: [...whereEntity(ref), { token: { equals: token } }],
 })
 
-const findLock = async (payload: Payload, ref: EntityRef): Promise<Lock | null> => {
+/** The entity's lock, whoever holds it; `null` when the document is not locked. */
+export const findLock = async (
+  payload: Payload,
+  ref: EntityRef,
+): Promise<Lock | null> => {
   const { docs } = await payload.find({
     collection: LOCKS_SLUG as never,
     where: { and: whereEntity(ref) } as never,
@@ -91,12 +95,20 @@ const tryCreate = async (
 
 // Deleting by id and token means two takers of the same expired lock cannot both delete:
 // the second delete finds nothing, and the fresh lock the first one creates has another
-// id and token.
+// id and token. The age filter keeps a lock its holder refreshed since `findLock` read
+// it: Payload's `delete` with a `where` is a find followed by a delete by id, so a
+// heartbeat that lands between those two steps can still be lost. That window is the
+// milliseconds between two queries, not the time since the lookup.
 const deleteExpired = async (payload: Payload, lock: Lock): Promise<void> => {
+  const expiredBefore = new Date(Date.now() - BUSY_WINDOW_MS).toISOString()
   await payload.delete({
     collection: LOCKS_SLUG as never,
     where: {
-      and: [{ id: { equals: lock.id } }, { token: { equals: lock.token } }],
+      and: [
+        { id: { equals: lock.id } },
+        { token: { equals: lock.token } },
+        { updatedAt: { less_than: expiredBefore } },
+      ],
     } as never,
   })
 }
@@ -123,12 +135,6 @@ export const acquireLock = async (
   if (await tryCreate(payload, ref, token)) return token
   return (await takeOver(payload, ref, token)) ? token : null
 }
-
-export const ownsLock = async (
-  payload: Payload,
-  ref: EntityRef,
-  token: string,
-): Promise<boolean> => (await findLock(payload, ref))?.token === token
 
 // The heartbeat: Payload stamps `updatedAt` on every update. A lock taken over since has
 // another token, so the conditional update touches nothing and reports the loss.

@@ -88,7 +88,8 @@ After adding the plugin:
 2. Create and run a **database migration** (`payload migrate:create`, then
    `payload migrate`). The plugin adds to your schema:
    - the `translation-records` collection (one record per entity and target locale, with a
-     unique index on `entityType` + `collectionSlug` + `docId` + `targetLocale`);
+     unique index on `entityType` + `collectionSlug` + `docId` + `targetLocale`, and a
+     `lockToken` text field);
    - the `translation-locks` collection (one lock per entity while a translation is queued
      or running, with a unique index on `entityType` + `collectionSlug` + `docId`);
    - the `translateDocument` job task (with its input schema).
@@ -256,11 +257,12 @@ type LocaleStatus = {
 }
 ```
 
-A record left `queued` or `running` without updates for 15 minutes (a process that died
-mid-job) is reported as `state: 'failed'` with the error
-`The translation was interrupted before it finished; you can start it again`. That is
-decided on read: `/status` never changes a record's state. The lock expires on the same
-schedule (see [Jobs](#jobs)), so the retry the drawer offers goes through.
+A `queued` or `running` record is reported as such while the document's lock is live (its
+heartbeat is under 15 minutes old) or the record itself was updated in the last 15
+minutes. Past both (a process that died mid-job) it is reported as `state: 'failed'` with
+the error `The translation was interrupted before it finished; you can start it again`.
+That is decided on read: `/status` never changes a record's state. The lock expires on the
+same schedule (see [Jobs](#jobs)), so the retry the drawer offers goes through.
 
 ## How it works
 
@@ -331,19 +333,25 @@ thanks to their fingerprints, so no provider call or write is repeated.
 The lock is a row in `translation-locks` with a unique index per entity, so taking it is a
 single atomic insert in the database: of two simultaneous requests for the same document
 exactly one gets a 202 and the other a 409, whatever the adapter or the number of
-processes. The job carries the lock's token, checks that it still owns the lock at the
-start of every attempt and refreshes it (its `updatedAt` is the heartbeat) on every
-provider batch and right before each write. The lock is released when the job ends for
-good (success, cancellation or the last attempt) and kept while a retry is pending. A lock
-whose heartbeat is older than 15 minutes (a process that died mid-job) is taken over by
-the next request; the old job, if it ever runs again, is cancelled as
+processes. The job carries the lock's token and refreshes the lock (its `updatedAt` is the
+heartbeat) at the start of every attempt, before each record it writes, after every
+provider batch and right before each document write; a refresh that finds the lock gone
+stops the job. So what must fit in the 15-minute window is one provider call with its
+retries, not the whole job. The lock is released when the job ends for good (success,
+cancellation or the last attempt) and kept while a retry is pending. A lock whose
+heartbeat is older than 15 minutes (a process that died mid-job) is taken over by the next
+request; the old job, if it ever runs again, is cancelled as
 `Superseded by a newer translation request` without writing anything, and a job that loses
-its lock while translating stops before its next write.
+its lock while translating stops before its next write, without marking its records
+failed: they already belong to the newer request. Every record the request or the job
+writes carries the lock token (`lockToken`), which is how a retry tells a `failed` record
+of its own earlier attempt (not tried again) from one an older job left behind.
 
-For each locale, the document write, the re-read that verifies it and the record that
-keeps its fingerprints are saved inside one database transaction, so the document never
-holds the translator's text without the fingerprints that say so (which would make the
-next run keep it as a hand edit). This needs an adapter with transactions: see
+For each locale, the document write and the record that keeps its fingerprints are saved
+inside one database transaction, so the document never holds the translator's text without
+the fingerprints that say so (which would make the next run keep it as a hand edit). The
+re-read that verifies the write runs after the commit, outside the transaction: inside it,
+it would only ever see the write itself. This needs an adapter with transactions: see
 [Known limitations](#known-limitations).
 
 ### Live writes and `onLiveWrite`
@@ -438,9 +446,13 @@ the task label is in English.
   the peer range starts at `^3.90.2`; a later minor may need adjustments.
 - **A concurrent edit can overwrite a translation.** Payload does not merge locales
   atomically: an autosave in another locale that lands while the job writes can wipe what
-  was translated. The job re-reads the target after writing and fails with a retryable
-  error when it does not match. Likewise, an editor who keeps the target locale open and
-  saves without reloading overwrites the translation; the control asks them to reload.
+  was translated. The job re-reads the target after its write is committed (outside the
+  transaction, where a save that waited on the row locks is visible), keeps the
+  fingerprints of the fields that survived, drops the rest and fails with a retryable
+  error; the retry translates the reverted fields again or, if an editor's text landed,
+  keeps it as a hand edit. A save that lands after that re-read is a plain later edit and
+  is not detected. Likewise, an editor who keeps the target locale open and saves without
+  reloading overwrites the translation; the control asks them to reload.
 - **`localizeStatus` is not supported** by the "unpublished draft" notice, which relies on
   the document-level publish status and the latest published version.
 - **Atomic write + fingerprints needs transactions.** The document write and its record
@@ -460,7 +472,8 @@ the task label is in English.
   [Untrusted content](#untrusted-content).
 - **`onLiveWrite` may run more than once** for the same translation when two status polls
   overlap; see [Live writes and `onLiveWrite`](#live-writes-and-onlivewrite).
-- **Fixed names.** The records collection is always `translation-records`, the endpoints
+- **Fixed names.** The records collection is always `translation-records` (with its
+  `lockToken` field), the locks collection `translation-locks`, the endpoints
   `/api/translator/translate` and `/api/translator/status`, and the task
   `translateDocument`; they cannot be renamed, so they must not clash with yours.
 

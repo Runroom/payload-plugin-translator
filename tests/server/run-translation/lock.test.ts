@@ -5,6 +5,7 @@ import { fakeProvider } from '../../../src/exports/testing.js'
 import { ProviderError } from '../../../src/provider/types.js'
 import { LOCK_LOST } from '../../../src/server/localeRun.js'
 import { LOCKS_SLUG } from '../../../src/server/lock.js'
+import { RECORDS_SLUG } from '../../../src/server/records.js'
 import { runTranslation } from '../../../src/server/runTranslation.js'
 import {
   allTargets,
@@ -85,7 +86,7 @@ describe('runTranslation and the document lock', () => {
     expect(recordsFor(records, 'en')).toEqual([])
   })
 
-  it('refreshes the lock on every provider batch and before writing', async () => {
+  it('refreshes the lock at the start, before each record write, on every provider batch and before writing', async () => {
     const { payload } = fakePayload({ docs: { ...bothLocales } })
 
     await runTranslation({ isLastAttempt: false, payload, input, settings })
@@ -95,8 +96,96 @@ describe('runTranslation and the document lock', () => {
     const refreshes = calls.filter(
       ([args]) => (args as { collection: string }).collection === LOCKS_SLUG,
     )
-    expect(refreshes).toHaveLength(2)
+    // Start of the attempt, before the `running` record, after the provider batch and
+    // before the write.
+    expect(refreshes).toHaveLength(4)
     expect(refreshes[0]![0]).toMatchObject({ data: { token: LOCK_TOKEN } })
+    // The first refresh comes before anything is read: a plain lookup would leave a lock
+    // about to expire open to a take-over during the first provider batch.
+    expect(calls[0]![0]).toMatchObject({ collection: LOCKS_SLUG })
+    expect(vi.mocked(payload.find)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ collection: LOCKS_SLUG }),
+    )
+  })
+
+  it('does not record a failure once the lock is lost during the provider call', async () => {
+    const lock = heldLock()
+    const { payload, records } = fakePayload({ docs: { ...bothLocales }, lock })
+    // A provider call that outlasted the busy window: a newer request took the lock over
+    // and set the records to `queued` for its own job before this call failed.
+    const translate = vi.fn(async () => {
+      lock.token = 'newer-token'
+      throw new ProviderError('timeout', true)
+    })
+
+    await expect(
+      runTranslation({
+        isLastAttempt: false,
+        payload,
+        input: allTargets,
+        settings: { ...settings, provider: { translate } },
+      }),
+    ).rejects.toThrow(new JobCancelledError(LOCK_LOST))
+
+    expect(recordsFor(records, 'ca').map(data => data.status)).toEqual(['running'])
+    expect(recordsFor(records, 'en')).toEqual([])
+  })
+
+  it('does not mark the records failed when the lock is lost while the job is prepared', async () => {
+    const lock = heldLock()
+    const { payload, records } = fakePayload({ docs: { ...bothLocales }, lock })
+    const original = vi.mocked(payload.findByID)
+    // The requester is gone and, meanwhile, a newer request took the lock over.
+    payload.findByID = vi.fn(async (args: { collection?: string }) => {
+      if (args.collection !== 'users') return original(args as never)
+      lock.token = 'newer-token'
+      return null
+    }) as never
+
+    await expect(
+      runTranslation({ isLastAttempt: false, payload, input: allTargets, settings }),
+    ).rejects.toThrow(new JobCancelledError(LOCK_LOST))
+
+    expect(records).not.toHaveBeenCalled()
+  })
+
+  it('does not write the running record when the lock is lost before it', async () => {
+    const lock = heldLock()
+    const { payload, records, update } = fakePayload({ docs: { ...bothLocales }, lock })
+    const original = vi.mocked(payload.find)
+    payload.find = vi.fn(async (args: { collection: string }) => {
+      // The record lookup is the last read before `running` is written.
+      if (args.collection === RECORDS_SLUG) lock.token = 'newer-token'
+      return original(args as never)
+    }) as never
+
+    await expect(
+      runTranslation({ isLastAttempt: false, payload, input, settings }),
+    ).rejects.toThrow(new JobCancelledError(LOCK_LOST))
+
+    expect(records).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('does not write done for a locale with nothing to translate once the lock is lost', async () => {
+    const lock = heldLock()
+    const { payload, records, update } = fakePayload({
+      docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: 'Curs editat' } },
+      lock,
+    })
+    const original = vi.mocked(payload.findByID)
+    payload.findByID = vi.fn(async (args: { collection?: string }) => {
+      // The lock is taken over while the document is read, before the plan comes out empty.
+      if (args.collection === 'events') lock.token = 'newer-token'
+      return original(args as never)
+    }) as never
+
+    await expect(
+      runTranslation({ isLastAttempt: false, payload, input, settings }),
+    ).rejects.toThrow(new JobCancelledError(LOCK_LOST))
+
+    expect(recordsFor(records, 'ca').map(data => data.status)).toEqual(['running'])
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('releases the lock when the job succeeds', async () => {
