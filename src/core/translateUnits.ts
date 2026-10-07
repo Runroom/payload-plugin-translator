@@ -1,6 +1,6 @@
 import type { TranslationProvider } from '../provider/types.js'
 import { MarkError, unescapeText } from './lexical.js'
-import { marksMatch, TOKEN } from './marks.js'
+import { marksMatch, textMarksOf, TOKEN } from './marks.js'
 
 const MAX_UNITS = 40
 const MAX_CHARS = 12_000
@@ -77,6 +77,19 @@ const isBlankFor = (source: string, text: string, hasMarks: boolean): boolean =>
   return sourceText.trim() !== '' && resultText.trim() === ''
 }
 
+// `<1></1><2>mundo</2>` for `<1>Hello </1><2>world</2>` has valid marks and text, but the
+// parser drops the empty text node and the source text is lost. A mark that was only
+// whitespace may come back empty, and a non-blank one may move.
+const emptiesMark = (source: string, text: string): boolean => {
+  const expected = textMarksOf(source)
+  const actual = textMarksOf(text)
+  if (!expected || !actual) return false
+  return [...expected].some(
+    ([index, sourceText]) =>
+      sourceText.trim() !== '' && (actual.get(index) ?? '').trim() === '',
+  )
+}
+
 const brokenIn = (
   { withMarks = (): boolean => true }: Args,
   units: Map<string, string>,
@@ -88,7 +101,7 @@ const brokenIn = (
     return (
       text === undefined ||
       isBlankFor(source, text, hasMarks) ||
-      (hasMarks && !marksMatch(source, text))
+      (hasMarks && (!marksMatch(source, text) || emptiesMark(source, text)))
     )
   })
 

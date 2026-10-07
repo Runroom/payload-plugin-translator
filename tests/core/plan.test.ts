@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { fingerprint, fingerprintOf } from '../../src/core/fingerprint.js'
+import { validateUrl } from '../../src/core/lexical.js'
 import { countChanged, countMissing, planTranslation } from '../../src/core/plan.js'
 import type { TranslatableValue } from '../../src/core/types.js'
 import { unitsOf } from '../../src/core/units.js'
@@ -394,18 +395,76 @@ describe('fingerprintOf a richText', () => {
     expect(fingerprintOf(other)).not.toEqual(fingerprintOf(once))
   })
 
+  // What Payload's link `beforeChange` stores after `times` saves of `url`.
+  const storedAfter = (url: string, times: number): string =>
+    Array.from({ length: times }).reduce<string>(
+      current => (validateUrl(current) ? current : encodeURIComponent(current)),
+      url,
+    )
+
+  // Checked against `validateUrl` in @payloadcms/richtext-lexical 3.90.2
+  // (dist/lexical/utils/url.js): accepted urls are compared literally, rejected ones are
+  // re-encoded by Payload on every save and compared decoded.
+  const urlRule: [string, boolean][] = [
+    ['https://example.com/a/b', true],
+    ['https://example.com/a%2Fb', true],
+    ['https://a.example/100%', true],
+    ['https://', true],
+    ['www.example.com/resource', true],
+    ['mailto:email@example.com', true],
+    ['tel:+1234567890', true],
+    ['/a/b', true],
+    ['/page?id=123#section', true],
+    ['#anchor', true],
+    ['/a%2Fb', false],
+    ['/path/with spaces', false],
+    ['http://localhost:3000/x', false],
+    ['http:/example.com', false],
+    ['example.com/x', false],
+    ['', false],
+  ]
+
+  it.each(urlRule)('mirrors Payload: validateUrl(%j) is %s', (url, accepted) => {
+    expect(validateUrl(url)).toBe(accepted)
+  })
+
+  it.each(urlRule.map(([url]) => url))(
+    'gives %j the fingerprint of what Payload stores after one or more saves',
+    url => {
+      const source = richText(paragraph([text('Más info '), link(url)]))
+
+      for (const times of [1, 2, 3]) {
+        const stored = richText(
+          paragraph([text('Más info '), link(storedAfter(url, times))]),
+        )
+        expect(fingerprintOf(stored)).toEqual(fingerprintOf(source))
+      }
+    },
+  )
+
   it('compares literally a url Payload keeps as-is, so an encoded slash is a change', () => {
+    // `https://example.com/a%2Fb` passes Payload's absolute regexp (`%` is allowed in the
+    // path), so it is stored as typed and differs from `https://example.com/a/b`.
     const encoded = richText(
       paragraph([text('Más info '), link('https://example.com/a%2Fb')]),
     )
     const plain = richText(
       paragraph([text('Más info '), link('https://example.com/a/b')]),
     )
-    const encodedPath = richText(paragraph([text('Más info '), link('/a%2Fb')]))
-    const plainPath = richText(paragraph([text('Más info '), link('/a/b')]))
 
     expect(fingerprintOf(encoded)).not.toEqual(fingerprintOf(plain))
-    expect(fingerprintOf(encodedPath)).not.toEqual(fingerprintOf(plainPath))
+  })
+
+  it('collapses an encoded slash in a path Payload re-encodes on save', () => {
+    // `/a%2Fb` fails Payload's relative regexp (no `%` allowed), so Payload stores it as
+    // `%2Fa%252Fb`; decoding that layer by layer gives `/a/b`, the same as the literal path.
+    const encodedPath = richText(paragraph([text('Más info '), link('/a%2Fb')]))
+    const storedPath = richText(paragraph([text('Más info '), link('%2Fa%252Fb')]))
+    const plainPath = richText(paragraph([text('Más info '), link('/a/b')]))
+
+    expect(storedAfter('/a%2Fb', 1)).toBe('%2Fa%252Fb')
+    expect(fingerprintOf(storedPath)).toEqual(fingerprintOf(encodedPath))
+    expect(fingerprintOf(encodedPath)).toEqual(fingerprintOf(plainPath))
   })
 
   it('decodes only the urls Payload encodes on save', () => {
