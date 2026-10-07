@@ -102,7 +102,9 @@ const tryCreate = async (
 // it, when the lock is gone and the holder's next refresh reports the loss. The token
 // keeps two takers of the same expired lock apart: the second delete matches nothing and
 // the fresh lock the first one creates has another token. After the delete, the unique
-// index decides who creates the new lock, as always.
+// index decides who creates the new lock, as always. This holds because every condition
+// here is a column of the locks table itself: a condition on a relationship or another
+// table would make drizzle select the ids first, and the statement would no longer be one.
 const deleteExpired = async (
   payload: Payload,
   ref: EntityRef,
