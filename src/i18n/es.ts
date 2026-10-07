@@ -43,8 +43,6 @@ export const es = {
     forbidden: 'No tienes permiso para editar este contenido.',
     notFound: 'Este contenido ya no existe o no tienes acceso.',
     badRequest: 'La petición no es válida para este contenido.',
-    recordsFailed:
-      'La traducción se ha lanzado, pero no se ha podido registrar su estado. Recarga en unos minutos.',
     statusUnavailable:
       'No se ha podido comprobar el estado de la traducción. Pulsa Reintentar para volver a consultarlo.',
     statusUnavailableShort: 'Estado desconocido',

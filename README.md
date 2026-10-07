@@ -89,11 +89,14 @@ After adding the plugin:
    `payload migrate`). The plugin adds to your schema:
    - the `translation-records` collection (one record per entity and target locale, with a
      unique index on `entityType` + `collectionSlug` + `docId` + `targetLocale`);
-   - the `translateDocument` job task (with its input schema);
-   - the indexed `concurrencyKey` column of the jobs collection, because the plugin turns
-     on `jobs.enableConcurrencyControl` so two jobs for the same document never run at
-     once. It respects an explicit `enableConcurrencyControl: false` in your config; then
-     two simultaneous requests for the same document may run in parallel.
+   - the `translation-locks` collection (one lock per entity while a translation is queued
+     or running, with a unique index on `entityType` + `collectionSlug` + `docId`);
+   - the `translateDocument` job task (with its input schema).
+
+   The plugin does not touch `jobs.enableConcurrencyControl`: two jobs for the same
+   document never run at once because of the lock, not because of Payload's
+   `concurrencyKey`.
+
 3. Make sure the jobs run (see [Requirements](#requirements)).
 
 ## Options
@@ -205,17 +208,17 @@ keep a sync from claiming a field the translator wrote.
 
 The checks run in this order:
 
-| Status | Body                                                    | When                                                                                                                                       |
-| ------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 400    | `{ "error": "bad-request" }`                            | The body is not JSON or lacks `collection` + `id` (or `global`), `sourceLocale` or the `targetLocales` array. Checked before `access`.     |
-| 403    | `{ "error": "forbidden" }`                              | The plugin's `access` denies it, or the request has no user.                                                                               |
-| 503    | `{ "error": "not-configured" }`                         | `provider` is `null`.                                                                                                                      |
-| 400    | `{ "error": "bad-request" }`                            | The collection is not configured, `sourceLocale` is not one of the entity's locales, or no target is a valid locale other than the source. |
-| 404    | `{ "error": "not-found" }`                              | The global is not configured, the document or global does not exist, or the user cannot read it in the source locale.                      |
-| 403    | `{ "error": "forbidden" }`                              | The user cannot update the document or global in one of the target locales.                                                                |
-| 409    | `{ "error": "busy", "busy": ["es"] }`                   | A locale of the document is already queued or translating. The lock is per document, not per locale.                                       |
-| 500    | `{ "error": "records-failed", "queued": ["es", "ca"] }` | The job was queued and started, but the records could not be set to `queued`, so the document may not show as locked.                      |
-| 202    | `{ "queued": ["es", "ca"] }`                            | The job was queued and started.                                                                                                            |
+| Status | Body                                  | When                                                                                                                                                                                                                         |
+| ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `{ "error": "bad-request" }`          | The body is not JSON or lacks `collection` + `id` (or `global`), `sourceLocale` or the `targetLocales` array. Checked before `access`.                                                                                       |
+| 403    | `{ "error": "forbidden" }`            | The plugin's `access` denies it, or the request has no user.                                                                                                                                                                 |
+| 503    | `{ "error": "not-configured" }`       | `provider` is `null`.                                                                                                                                                                                                        |
+| 400    | `{ "error": "bad-request" }`          | The collection is not configured, `sourceLocale` is not one of the entity's locales, or no target is a valid locale other than the source.                                                                                   |
+| 404    | `{ "error": "not-found" }`            | The global is not configured, the document or global does not exist, or the user cannot read it in the source locale.                                                                                                        |
+| 403    | `{ "error": "forbidden" }`            | The user cannot update the document or global in one of the target locales.                                                                                                                                                  |
+| 409    | `{ "error": "busy", "busy": ["es"] }` | Another request holds the document's lock: a translation is queued or running. The lock is per document, not per locale; `busy` lists the locales with a pending record, or the requested targets when none is recorded yet. |
+| 500    | `{ "error": "failed" }`               | The records or the job could not be saved. Nothing was queued and the lock was released, so the request can simply be repeated.                                                                                              |
+| 202    | `{ "queued": ["es", "ca"] }`          | The lock was taken, the records set to `queued` and the job queued and started.                                                                                                                                              |
 
 Targets that are not locales of the entity, and the source itself, are dropped as long as
 one valid target remains.
@@ -249,9 +252,10 @@ type LocaleStatus = {
 ```
 
 A record left `queued` or `running` without updates for 15 minutes (a process that died
-mid-job) stops locking the document and is reported as `state: 'failed'` with the error
+mid-job) is reported as `state: 'failed'` with the error
 `The translation was interrupted before it finished; you can start it again`. That is
-decided on read: `/status` never changes a record's state.
+decided on read: `/status` never changes a record's state. The lock expires on the same
+schedule (see [Jobs](#jobs)), so the retry the drawer offers goes through.
 
 ## How it works
 
@@ -310,14 +314,32 @@ verifying after the write, fingerprints) works the same in both modes.
 
 ### Jobs
 
-`POST /translate` queues one `translateDocument` job per document with every target locale
-and runs it right away, filtered by the queued job's id. The locales are translated in
-sequence inside that job, because each write saves the whole document from the latest
-version. Non-recoverable errors (a provider error marked as not retryable, broken
-formatting, a missing document, a validation error) cancel the job; the rest are retried
-twice with exponential backoff (10 s base). A retry goes through every locale again, but
-the finished ones come out unchanged thanks to their fingerprints, so no provider call or
-write is repeated.
+`POST /translate` takes the document's lock, sets the records to `queued`, queues one
+`translateDocument` job per document with every target locale and runs it right away,
+filtered by the queued job's id. The locales are translated in sequence inside that job,
+because each write saves the whole document from the latest version. Non-recoverable
+errors (a provider error marked as not retryable, broken formatting, a missing document, a
+validation error) cancel the job; the rest are retried twice with exponential backoff (10
+s base). A retry goes through every locale again, but the finished ones come out unchanged
+thanks to their fingerprints, so no provider call or write is repeated.
+
+The lock is a row in `translation-locks` with a unique index per entity, so taking it is a
+single atomic insert in the database: of two simultaneous requests for the same document
+exactly one gets a 202 and the other a 409, whatever the adapter or the number of
+processes. The job carries the lock's token, checks that it still owns the lock at the
+start of every attempt and refreshes it (its `updatedAt` is the heartbeat) on every
+provider batch and right before each write. The lock is released when the job ends for
+good (success, cancellation or the last attempt) and kept while a retry is pending. A lock
+whose heartbeat is older than 15 minutes (a process that died mid-job) is taken over by
+the next request; the old job, if it ever runs again, is cancelled as
+`Superseded by a newer translation request` without writing anything, and a job that loses
+its lock while translating stops before its next write.
+
+For each locale, the document write, the re-read that verifies it and the record that
+keeps its fingerprints are saved inside one database transaction, so the document never
+holds the translator's text without the fingerprints that say so (which would make the
+next run keep it as a hand edit). This needs an adapter with transactions: see
+[Known limitations](#known-limitations).
 
 ### Live writes and `onLiveWrite`
 
@@ -331,6 +353,11 @@ document after the job ends (the editor closed the tab, the job was retried by a
 later), the hook does not fire until someone does.** Errors in the hook are caught and
 logged as warnings, and the translation is marked as notified anyway, so a failing hook is
 not retried on every poll.
+
+**The hook must be idempotent.** Two status polls that overlap (two admin tabs, a slow
+hook) can both read the translation as not yet notified and call the hook twice for the
+same translation. Revalidating a path twice is harmless; anything that is not (sending an
+email, for instance) needs its own guard.
 
 ### Lexical rich text
 
@@ -395,6 +422,16 @@ the task label is in English.
   saves without reloading overwrites the translation; the control asks them to reload.
 - **`localizeStatus` is not supported** by the "unpublished draft" notice, which relies on
   the document-level publish status and the latest published version.
+- **Atomic write + fingerprints needs transactions.** The document write and its record
+  are committed together only when the database adapter supports transactions: Postgres
+  does; MongoDB needs a replica set; `@payloadcms/db-sqlite` only runs them when its
+  `transactionOptions` is set (off by default, and libsql runs every transaction on its
+  own connection, so concurrent writes can fail with `SQLITE_BUSY`). Without transactions
+  Payload makes them no-ops: the write and the record are saved one after the other, and a
+  record save that fails right after the write leaves text the next run keeps as edited by
+  hand until `overwriteEdited` is used.
+- **`onLiveWrite` may run more than once** for the same translation when two status polls
+  overlap; see [Live writes and `onLiveWrite`](#live-writes-and-onlivewrite).
 - **Fixed names.** The records collection is always `translation-records`, the endpoints
   `/api/translator/translate` and `/api/translator/status`, and the task
   `translateDocument`; they cannot be renamed, so they must not clash with yours.

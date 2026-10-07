@@ -272,14 +272,21 @@ describe('translatorPlugin with globals', () => {
   })
 })
 
-describe('translatorPlugin jobs concurrency', () => {
-  it('turns concurrency control on so the task key counts', async () => {
+describe('translatorPlugin document locks', () => {
+  it('registers the locks collection, hidden and unique per entity', async () => {
     const config = await plugin(baseConfig())
+    const locks = config.collections!.find(
+      collection => collection.slug === 'translation-locks',
+    )!
 
-    expect(config.jobs?.enableConcurrencyControl).toBe(true)
+    expect(locks.admin?.hidden).toBe(true)
+    expect(locks.indexes).toEqual([
+      { fields: ['entityType', 'collectionSlug', 'docId'], unique: true },
+    ])
   })
 
-  it('respects a project that turned it off explicitly', async () => {
+  it('leaves the project’s jobs concurrency setting alone', async () => {
+    expect((await plugin(baseConfig())).jobs?.enableConcurrencyControl).toBeUndefined()
     const config = await plugin({
       ...baseConfig(),
       jobs: { enableConcurrencyControl: false, tasks: [] },

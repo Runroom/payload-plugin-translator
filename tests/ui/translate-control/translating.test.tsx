@@ -123,7 +123,7 @@ describe('TranslateControl: translating', () => {
     ['forbidden', respond({ error: 'forbidden' }, 403)],
     ['notFound', respond({ error: 'not-found' }, 404)],
     ['badRequest', respond({ error: 'bad-request' }, 400)],
-    ['recordsFailed', respond({ error: 'records-failed', queued: ['ca', 'en'] }, 500)],
+    ['requestFailed', respond({ error: 'failed' }, 500)],
     ['requestFailed', respond({ error: 'boom' }, 500)],
     ['requestFailed', respond({ error: 'down' }, 502)],
   ])('shows the %s message when the request is refused', async (key, response) => {

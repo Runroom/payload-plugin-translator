@@ -7,6 +7,8 @@ import { vi } from 'vitest'
 import config, { databaseFile } from '../../dev/payload.config.js'
 import { RECORDS_SLUG } from '../../src/index.js'
 import type { StatusResponse } from '../../src/index.js'
+import type { EntityRef } from '../../src/server/entity.js'
+import { LOCKS_SLUG } from '../../src/server/lock.js'
 import type { TranslationRecord } from '../../src/server/records.js'
 
 export const QUEUE = 'translations'
@@ -100,6 +102,80 @@ export const status = (
 
 const pendingJobs = async ({ payload }: Harness): Promise<number> =>
   (await payload.count({ collection: 'payload-jobs' as never })).totalDocs
+
+export type Job = {
+  id: string | number
+  processing: boolean
+  hasError?: boolean
+  error?: { cancelled?: boolean; message?: string } | null
+  input: { lockToken?: string }
+}
+
+export const listJobs = async ({ payload }: Harness): Promise<Job[]> =>
+  (
+    await payload.find({
+      collection: 'payload-jobs' as never,
+      sort: 'createdAt',
+      pagination: false,
+      depth: 0,
+    })
+  ).docs as unknown as Job[]
+
+// Queues the job without running it, so the test decides when (and whether) it runs.
+export const queueOnly = async (
+  harness: Harness,
+  body: Parameters<typeof translate>[1],
+  user: TypedUser | null = harness.user,
+): Promise<Reply> => {
+  harness.runs.mockResolvedValueOnce({ noJobsRemaining: false } as never)
+  return translate(harness, body, user)
+}
+
+export const runJob = async (harness: Harness, id: string | number): Promise<void> => {
+  await harness.payload.jobs.run({ queue: QUEUE, where: { id: { in: [id] } } })
+}
+
+// A job that failed for good stays in the table; it is removed so `drainQueue` can tell
+// that everything else finished.
+export const clearFailedJobs = async ({ payload }: Harness): Promise<void> => {
+  await payload.delete({
+    collection: 'payload-jobs' as never,
+    where: { hasError: { equals: true } },
+  })
+}
+
+export type Lock = { id: string | number; token: string; updatedAt: string }
+
+export const findLock = async (
+  { payload }: Harness,
+  ref: EntityRef,
+): Promise<Lock | undefined> => {
+  const { docs } = await payload.find({
+    collection: LOCKS_SLUG as never,
+    where: {
+      and: [
+        { entityType: { equals: ref.entityType } },
+        { collectionSlug: { equals: ref.collectionSlug } },
+        { docId: { equals: ref.docId } },
+      ],
+    },
+    depth: 0,
+  })
+  return docs[0] as unknown as Lock | undefined
+}
+
+// Payload stamps `updatedAt` on every update, so the heartbeat is aged through the adapter.
+export const ageLock = async (
+  { payload }: Harness,
+  lock: Lock,
+  ageMs: number,
+): Promise<void> => {
+  await payload.db.updateOne({
+    collection: LOCKS_SLUG,
+    id: lock.id,
+    data: { updatedAt: new Date(Date.now() - ageMs).toISOString() },
+  } as never)
+}
 
 // Waits for the runs `POST /translate` started, then runs the queue until it is empty.
 // Payload deletes a job once it completes, so an empty jobs collection means every job

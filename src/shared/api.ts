@@ -20,12 +20,11 @@ export type TranslatorErrorCode =
   | 'not-found'
   | 'not-configured'
   | 'busy'
-  | 'records-failed'
+  | 'failed'
 
 export type TranslatorErrorBody = {
   error: TranslatorErrorCode
   busy?: string[]
-  queued?: string[]
 }
 
 export type TranslateQueuedBody = { queued: string[] }

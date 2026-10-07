@@ -1,8 +1,10 @@
 import type { PayloadRequest } from 'payload'
+import { ValidationError } from 'payload'
 import { vi } from 'vitest'
 
 import { fakeProvider } from '../../../src/exports/testing.js'
 import { translatorEndpoints } from '../../../src/server/endpoints.js'
+import { LOCKS_SLUG } from '../../../src/server/lock.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
 
 export const settings = (
@@ -37,6 +39,7 @@ export const request = ({
   runError,
   findError,
   createError,
+  lock = null,
   versions = [],
   collections = {
     events: {
@@ -61,6 +64,8 @@ export const request = ({
   runError?: Error
   findError?: Error
   createError?: Error
+  // A lock another request holds on the document when this one arrives.
+  lock?: { id: string; token: string; updatedAt: string } | null
   versions?: Record<string, unknown>[]
   collections?: Record<string, unknown>
   globals?: Record<string, unknown>[]
@@ -68,7 +73,9 @@ export const request = ({
   req: PayloadRequest
   queue: ReturnType<typeof vi.fn>
   run: ReturnType<typeof vi.fn>
+  // The records' `create`; the lock's own calls are in `locks`.
   create: ReturnType<typeof vi.fn>
+  locks: { create: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> }
   findByID: ReturnType<typeof vi.fn>
   findGlobal: ReturnType<typeof vi.fn>
   find: ReturnType<typeof vi.fn>
@@ -86,12 +93,26 @@ export const request = ({
     ? vi.fn().mockRejectedValue(runError)
     : vi.fn().mockResolvedValue({})
   const create = createError ? vi.fn().mockRejectedValue(createError) : vi.fn()
+  // The unique index refuses a second lock until the first is deleted.
+  let held = lock
+  const locks = {
+    create: vi.fn(async (args: { data: { token: string } }) => {
+      if (held) throw new ValidationError({ collection: LOCKS_SLUG, errors: [] })
+      held = { id: 'l-new', token: args.data.token, updatedAt: new Date().toISOString() }
+      return held
+    }),
+    delete: vi.fn(async () => {
+      held = null
+    }),
+  }
   const findByID = vi.fn(async ({ locale }: { locale?: string }) => {
     if (findError) throw findError
     return (locale && docsByLocale[locale]) || doc
   })
   const findGlobal = vi.fn(async () => ({ tagline: 'Lema' }))
-  const find = vi.fn(async () => ({ docs: records }))
+  const find = vi.fn(async ({ collection }: { collection: string }) =>
+    collection === LOCKS_SLUG ? { docs: held ? [held] : [] } : { docs: records },
+  )
   const logError = vi.fn()
   const logWarn = vi.fn()
   const update = vi.fn()
@@ -114,8 +135,11 @@ export const request = ({
       find,
       findByID,
       findGlobal,
-      create,
+      create: vi.fn(async (args: { collection: string }) =>
+        args.collection === LOCKS_SLUG ? locks.create(args as never) : create(args),
+      ),
       update,
+      delete: locks.delete,
       findVersions,
       findGlobalVersions,
     },
@@ -125,6 +149,7 @@ export const request = ({
     queue,
     run,
     create,
+    locks,
     findByID,
     findGlobal,
     find,
@@ -144,4 +169,13 @@ export const recent = (
   targetLocale,
   status,
   updatedAt: new Date().toISOString(),
+})
+
+// A lock another request took `ageMs` ago.
+export const lockedSince = (
+  ageMs: number,
+): { id: string; token: string; updatedAt: string } => ({
+  id: 'l-other',
+  token: 'other-token',
+  updatedAt: new Date(Date.now() - ageMs).toISOString(),
 })

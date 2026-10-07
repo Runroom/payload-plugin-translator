@@ -4,7 +4,16 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 
 import { runTranslation } from '../../../src/server/runTranslation.js'
-import { fields, fakePayload, settings, input, requester, userOf } from './helpers.js'
+import {
+  fields,
+  fakePayload,
+  settings,
+  input,
+  LOCK_TOKEN,
+  requester,
+  userOf,
+  withLock,
+} from './helpers.js'
 
 // The job checks the requester's document access through Payload, which reads the
 // database; here every requester may translate every field unless a test says otherwise.
@@ -86,13 +95,17 @@ const globalPayload = ({
     collections: {},
     globals: { config: [{ slug: 'footer', fields, versions }] },
     logger: { error: vi.fn(), warn: vi.fn() },
+    // No `beginTransaction`: the write and its record are saved one by one, as on an
+    // adapter without transactions.
+    db: {},
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(async (args: { collection?: string }) => userOf(args)),
     findGlobal,
     updateGlobal,
-    find: vi.fn(async () => ({ docs: [] })),
+    find: vi.fn(withLock(async () => ({ docs: [] }))),
     create: records,
-    update: records,
+    update: vi.fn(withLock(records)),
+    delete: vi.fn(),
   } as unknown as Payload
   return { payload, updateGlobal, findGlobal, records }
 }
@@ -105,6 +118,7 @@ const globalInput = {
   targetLocales: ['ca'],
   overwriteEdited: false,
   requester,
+  lockToken: LOCK_TOKEN,
 }
 
 describe('runTranslation for a global', () => {

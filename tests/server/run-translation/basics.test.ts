@@ -550,7 +550,7 @@ describe('runTranslation and hooks that rewrite what it writes', () => {
     const write = writes.getMockImplementation()!
     // A `beforeChange` that normalizes the value, as `formatSlug` would.
     writes.mockImplementation(async args => {
-      if (args.collection === RECORDS_SLUG) return write(args)
+      if (args.collection !== 'events') return write(args)
       const data = args.data as { title: string }
       return write({ ...args, data: { ...data, title: data.title.toLowerCase() } })
     })

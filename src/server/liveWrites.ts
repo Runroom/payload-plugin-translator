@@ -6,10 +6,13 @@ import { markRevalidated } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
 /**
- * Called once per finished translation of an entity without drafts, so you can revalidate
+ * Called after a finished translation of an entity without drafts, so you can revalidate
  * the public site (for example with Next's `revalidatePath`). It runs from `GET /status`,
  * which the admin polls until the job ends, so it does not fire until someone requests the
  * status. `docId` is `null` for globals. Errors are logged and not retried.
+ *
+ * It must be idempotent: two overlapping status polls can both find the translation not
+ * yet notified and call it twice for the same locales. Revalidating twice is harmless.
  */
 export type OnLiveWrite = (args: {
   req: PayloadRequest
@@ -28,9 +31,10 @@ const needsRevalidation = (record: TranslationRecord): boolean =>
 // The job writes after the POST has been answered, outside any Next request, where
 // `revalidatePath` is either lost (the route handler already flushed its pending
 // revalidations) or throws (cron). `GET /status` is a real request that the UI polls until
-// the job finishes, so the website is notified from here, once per translation. The record
-// is marked even if the hook fails, because retrying it on every poll would only fill the
-// log.
+// the job finishes, so the website is notified from here. The record is marked even if the
+// hook fails, because retrying it on every poll would only fill the log. The Local API has
+// no conditional update, so the mark cannot be claimed atomically: two overlapping polls
+// can notify the same translation twice, which is why the hook must be idempotent.
 export const notifyLiveWrites = async ({
   req,
   settings,

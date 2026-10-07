@@ -20,6 +20,12 @@ export class PreviousFailure extends Error {
   override readonly name = 'PreviousFailure'
 }
 
+// The document's lock expired and a newer request took it over. Its job now owns the
+// document, so this one must not write anything more, now or on a retry.
+export class LockLostError extends Error {
+  override readonly name = 'LockLostError'
+}
+
 // Without drafts Payload validates the whole document on save, so a `ValidationError` (an
 // empty required `label` in the target, a custom validator) will not go away on retry.
 export const isUnrecoverable = (error: unknown): boolean =>
@@ -28,4 +34,5 @@ export const isUnrecoverable = (error: unknown): boolean =>
   error instanceof NotFound ||
   error instanceof ValidationError ||
   error instanceof PreviousFailure ||
-  error instanceof AccessDeniedError
+  error instanceof AccessDeniedError ||
+  error instanceof LockLostError

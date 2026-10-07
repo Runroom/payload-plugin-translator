@@ -73,27 +73,32 @@ describe('translateTask', () => {
   })
 })
 
-describe('translateTask concurrency', () => {
-  it('keys jobs by entity so two jobs of the same document never run at once', () => {
-    const { concurrency } = translateTask(settings) as unknown as {
-      concurrency: {
-        exclusive: boolean
-        key: (args: { input: Record<string, unknown>; queue: string }) => string
-      }
+describe('translateTask document lock', () => {
+  it('passes the lock token on and relies on it instead of Payload’s concurrency key', async () => {
+    const task = translateTask(settings) as unknown as {
+      handler: Handler
+      concurrency?: unknown
+      inputSchema: { name: string; required?: boolean }[]
     }
-    const keyOf = (input: Record<string, unknown>): string =>
-      concurrency.key({ input, queue: 'translations' })
+    vi.mocked(runTranslation).mockClear()
 
-    expect(concurrency.exclusive).toBe(true)
-    expect(
-      keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e1' }),
-    ).toBe('collection:events:e1')
-    expect(keyOf({ collectionSlug: 'events', docId: 'e1' })).toBe('collection:events:e1')
-    expect(
-      keyOf({ entityType: 'global', collectionSlug: 'footer', docId: 'global' }),
-    ).toBe('global:footer:global')
-    expect(
-      keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e2' }),
-    ).not.toBe(keyOf({ entityType: 'collection', collectionSlug: 'events', docId: 'e1' }))
+    await task.handler({
+      input: {
+        collectionSlug: 'events',
+        docId: 'e1',
+        targetLocales: ['ca'],
+        lockToken: 't1',
+      },
+      job: { totalTried: 0 },
+      req: { payload: {} as never },
+    })
+
+    expect(task.concurrency).toBeUndefined()
+    expect(task.inputSchema).toContainEqual({
+      name: 'lockToken',
+      type: 'text',
+      required: true,
+    })
+    expect(vi.mocked(runTranslation).mock.calls[0]![0].input.lockToken).toBe('t1')
   })
 })

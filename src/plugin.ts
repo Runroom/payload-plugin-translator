@@ -6,13 +6,15 @@ import { warnIfQueueUnscheduled } from './plugin/queue.js'
 import type { TranslatorPluginOptions } from './plugin/settings.js'
 import { resolveSettings } from './plugin/settings.js'
 import { translatorEndpoints } from './server/endpoints.js'
+import { locksCollection } from './server/lock.js'
 import { recordsCollection } from './server/records.js'
 import { translateTask } from './server/task.js'
 
 /**
  * Adds AI translation of localized fields to the configured collections and globals: a
  * "Translate" control in the admin, the `/api/translator/*` endpoints, the
- * `translation-records` collection and the `translateDocument` job task.
+ * `translation-records` and `translation-locks` collections and the `translateDocument`
+ * job task.
  *
  * @example
  * ```ts
@@ -44,6 +46,7 @@ export const translatorPlugin =
             : collection,
         ),
         recordsCollection(),
+        locksCollection(),
       ],
       globals: (config.globals ?? []).map(global =>
         settings.globals[global.slug]
@@ -53,10 +56,6 @@ export const translatorPlugin =
       endpoints: [...(config.endpoints ?? []), ...translatorEndpoints(settings)],
       jobs: {
         ...config.jobs,
-        // The task's concurrency key has no effect without this. Turning it on adds the
-        // indexed `concurrencyKey` column to the jobs collection, so the project needs a
-        // migration. An explicit `false` in the project config wins.
-        enableConcurrencyControl: config.jobs?.enableConcurrencyControl ?? true,
         tasks: [...(config.jobs?.tasks ?? []), translateTask(settings)],
       },
       i18n: { ...config.i18n, translations: mergeTranslations(config) },

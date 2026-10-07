@@ -5,7 +5,6 @@ import { fingerprint } from '../../../src/core/fingerprint.js'
 import { MarkError } from '../../../src/core/lexical.js'
 import { fakeProvider } from '../../../src/exports/testing.js'
 import { ProviderError } from '../../../src/provider/types.js'
-import { RECORDS_SLUG } from '../../../src/server/records.js'
 import { runTranslation } from '../../../src/server/runTranslation.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
 import {
@@ -162,7 +161,7 @@ describe('runTranslation with several target locales', () => {
     expect(translate.mock.calls.map(([request]) => request.targetLocale)).toEqual(['en'])
     const writes = update.mock.calls
       .map(([args]) => args as { collection: string; locale?: string })
-      .filter(args => args.collection !== RECORDS_SLUG)
+      .filter(args => args.collection === 'events')
     expect(writes.map(args => args.locale)).toEqual(['en'])
   })
 })

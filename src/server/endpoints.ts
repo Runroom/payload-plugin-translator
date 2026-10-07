@@ -6,6 +6,7 @@ import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
 import { entityOf, GLOBAL_DOC_ID, localesOf, targetLocalesOf } from './entity.js'
 import type { Requester } from './localeRun.js'
+import { acquireLock, releaseLock } from './lock.js'
 import { findRecords, saveRecord } from './records.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
 import { buildStatus, isBusy } from './status.js'
@@ -55,22 +56,34 @@ const parseBody = (body: unknown): TranslateBody | null => {
   }
 }
 
-const queueTranslations = async ({
-  req,
-  settings,
-  body,
-  targets,
-  requester,
-}: {
+type Translation = {
   req: PayloadRequest
   settings: TranslatorSettings
   body: TranslateBody
   targets: string[]
   requester: Requester
-}): Promise<{ recordsSaved: boolean }> => {
-  // Queue the job before writing the records: a `queued` record without a job would lock
-  // the document with 409 until it expires.
-  const job = (await req.payload.jobs.queue({
+  lockToken: string
+}
+
+// The records are written before the job is queued: a job claimed by the cron can finish
+// (and be deleted) before this request gets to its records, and writing `queued` after
+// that would hide a finished translation for the busy window.
+const saveQueued = async ({ req, body, targets }: Translation): Promise<void> => {
+  for (const targetLocale of targets) {
+    const key = { ...body.ref, targetLocale }
+    await saveRecord(req.payload, { key, data: { status: 'queued', error: null } })
+  }
+}
+
+const queueJob = async ({
+  req,
+  settings,
+  body,
+  targets,
+  requester,
+  lockToken,
+}: Translation): Promise<{ id: string | number }> =>
+  (await req.payload.jobs.queue({
     task: TRANSLATE_TASK_SLUG as never,
     queue: settings.queue,
     input: {
@@ -79,35 +92,73 @@ const queueTranslations = async ({
       targetLocales: targets,
       overwriteEdited: body.overwriteEdited,
       requester,
+      lockToken,
     } as never,
   })) as unknown as { id: string | number }
-  // If saving the records fails, the job already exists and is still run: it sets the
-  // records to `running`/`done` itself (`saveRecord` creates any missing one), so it is not
-  // left waiting for the cron. The response still reports a 500, because the client cannot
-  // assume the document is locked.
-  let recordsSaved = true
-  try {
-    for (const targetLocale of targets) {
-      const key = { ...body.ref, targetLocale }
-      await saveRecord(req.payload, { key, data: { status: 'queued', error: null } })
-    }
-  } catch (error) {
-    recordsSaved = false
-    req.payload.logger.error({ err: error, msg: 'Translator records save failed' })
+
+// Nothing was queued, so the document is unlocked again and the records say so. These
+// writes are best effort: an expired lock and an expired record stop blocking on their own.
+const undoQueued = async (
+  { req, body, targets, lockToken }: Translation,
+  error: unknown,
+): Promise<void> => {
+  const { payload } = req
+  payload.logger.error({ err: error, msg: 'Translator could not queue the translation' })
+  for (const targetLocale of targets) {
+    const key = { ...body.ref, targetLocale }
+    await saveRecord(payload, {
+      key,
+      data: { status: 'failed', error: 'The translation could not be queued' },
+    }).catch((err: unknown) => {
+      payload.logger.error({ err, msg: 'Translator records save failed' })
+    })
   }
-  // Run the job now instead of waiting for the cron, without awaiting it, because the
-  // translation takes longer than an HTTP response should. On a long-lived Node process the
-  // promise outlives the response. The cron only picks up queued jobs nobody ran (after a
-  // restart, for instance) and does not rescue one that was in progress; E2E runs have no
-  // cron. The run filters by id because `run` without `where` takes the oldest jobs in the
-  // queue, not necessarily this one. `runByID` is not used because it runs the job even
-  // while the cron is already processing it.
+  await releaseLock(payload, body.ref, lockToken).catch((err: unknown) => {
+    payload.logger.error({ err, msg: 'Could not release the translation lock' })
+  })
+}
+
+// Run the job now instead of waiting for the cron, without awaiting it, because the
+// translation takes longer than an HTTP response should. On a long-lived Node process the
+// promise outlives the response. The cron only picks up queued jobs nobody ran (after a
+// restart, for instance) and does not rescue one that was in progress; E2E runs have no
+// cron. The run filters by id because `run` without `where` takes the oldest jobs in the
+// queue, not necessarily this one. `runByID` is not used because it runs the job even
+// while the cron is already processing it.
+const startJob = ({ req, settings }: Translation, job: { id: string | number }): void => {
   void req.payload.jobs
     .run({ queue: settings.queue, limit: 1, where: { id: { in: [job.id] } } })
     .catch((error: unknown) => {
       req.payload.logger.error({ err: error, msg: 'Translator queue run failed' })
     })
-  return { recordsSaved }
+}
+
+// Either the records and the job both exist or neither does: a failure anywhere answers a
+// plain 500 with the lock released, so the client knows nothing started.
+const queueTranslation = async (translation: Translation): Promise<Response> => {
+  try {
+    await saveQueued(translation)
+    const job = await queueJob(translation)
+    startJob(translation, job)
+  } catch (error) {
+    await undoQueued(translation, error)
+    return fail({ error: 'failed' }, 500)
+  }
+  const queued: TranslateQueuedBody = { queued: translation.targets }
+  return json(queued, 202)
+}
+
+// The locales reported busy are those with a pending record; when the lock is held but no
+// record is pending yet (the holder is between taking it and saving them), the requested
+// targets are reported instead.
+const busyLocales = async (
+  req: PayloadRequest,
+  body: TranslateBody,
+  targets: string[],
+): Promise<string[]> => {
+  const records = await findRecords(req.payload, body.ref)
+  const busy = records.filter(isBusy).map(item => item.targetLocale)
+  return busy.length > 0 ? busy : targets
 }
 
 const readBody = async (req: PayloadRequest): Promise<unknown> => {
@@ -203,22 +254,14 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     const denied = await checkDocument({ req, body, targets })
     if (denied) return denied
 
-    const records = await findRecords(req.payload, body.ref)
     // The lock is per document, not per locale, because two jobs for the same document
-    // would write in parallel and one would overwrite the other.
-    const busy = records.filter(isBusy).map(item => item.targetLocale)
-    if (busy.length > 0) return fail({ error: 'busy', busy }, 409)
-
-    const { recordsSaved } = await queueTranslations({
-      req,
-      settings,
-      body,
-      targets,
-      requester,
-    })
-    if (!recordsSaved) return fail({ error: 'records-failed', queued: targets }, 500)
-    const queued: TranslateQueuedBody = { queued: targets }
-    return json(queued, 202)
+    // would write in parallel and one would overwrite the other. Taking it is atomic, so
+    // of two simultaneous requests exactly one gets past this point.
+    const lockToken = await acquireLock(req.payload, body.ref)
+    if (!lockToken) {
+      return fail({ error: 'busy', busy: await busyLocales(req, body, targets) }, 409)
+    }
+    return queueTranslation({ req, settings, body, targets, requester, lockToken })
   },
 })
 
