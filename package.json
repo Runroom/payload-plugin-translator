@@ -82,6 +82,8 @@
     "@arethetypeswrong/cli": "0.18.5",
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
+    "@payloadcms/db-sqlite": "3.90.2",
+    "@payloadcms/richtext-lexical": "3.90.2",
     "@payloadcms/ui": "3.90.2",
     "@swc/cli": "0.8.1",
     "@swc/core": "1.16.2",
