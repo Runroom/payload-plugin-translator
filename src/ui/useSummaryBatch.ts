@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 
-import type { StatusResponse } from '../server/status.js'
+import type { StatusResponse } from '../shared/api.js'
 import { isInFlight } from './useTranslatorStatus.js'
 
 // The batch the live region summarizes: the one started here (`own`) or the last one seen

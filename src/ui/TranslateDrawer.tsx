@@ -4,7 +4,7 @@ import { Button, Drawer, useModal, XIcon } from '@payloadcms/ui'
 import type { ReactElement, ReactNode } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
 
-import type { LocaleStatus, StatusResponse } from '../server/status.js'
+import type { LocaleStatus, StatusResponse } from '../shared/api.js'
 import { isUpToDate, LocaleStates } from './LocaleStates.js'
 import { Notice } from './Notice.js'
 import { TranslateOptions } from './TranslateOptions.js'

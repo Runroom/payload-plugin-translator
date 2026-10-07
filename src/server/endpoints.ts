@@ -1,5 +1,7 @@
 import type { Endpoint, PayloadRequest, SanitizedFieldsPermissions } from 'payload'
 
+import type { TranslateQueuedBody, TranslatorErrorBody } from '../shared/api.js'
+import { STATUS_PATH, TRANSLATE_PATH } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
 import { entityOf, GLOBAL_DOC_ID, localesOf } from './entity.js'
@@ -16,6 +18,9 @@ type TranslateBody = {
 }
 
 const json = (body: unknown, status: number): Response => Response.json(body, { status })
+
+// Every error goes through here so the codes are checked against the shared contract.
+const fail = (body: TranslatorErrorBody, status: number): Response => json(body, status)
 
 // A global is requested by `global`; a document, by `collection` + `id`.
 const refOf = (value: {
@@ -144,9 +149,9 @@ const resolveTargets = (
   const config = localesOf(settings, body.ref)
   if (!config) {
     const isGlobal = body.ref.entityType === 'global'
-    return json({ error: isGlobal ? 'not-found' : 'bad-request' }, isGlobal ? 404 : 400)
+    return fail({ error: isGlobal ? 'not-found' : 'bad-request' }, isGlobal ? 404 : 400)
   }
-  return targetsOf(body, config) ?? json({ error: 'bad-request' }, 400)
+  return targetsOf(body, config) ?? fail({ error: 'bad-request' }, 400)
 }
 
 // Without read access the document does not exist for the requester; without update
@@ -160,24 +165,24 @@ const checkDocument = async ({
   body: TranslateBody
 }): Promise<Response | SanitizedFieldsPermissions> => {
   if (!(await entityExists({ req, ref: body.ref, locale: body.sourceLocale })))
-    return json({ error: 'not-found' }, 404)
+    return fail({ error: 'not-found' }, 404)
   const permissions = await docPermissions({ req, ref: body.ref })
-  if (!permissions.read) return json({ error: 'not-found' }, 404)
-  if (!permissions.update) return json({ error: 'forbidden' }, 403)
+  if (!permissions.read) return fail({ error: 'not-found' }, 404)
+  if (!permissions.update) return fail({ error: 'forbidden' }, 403)
   return permissions.fields
 }
 
 const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
-  path: '/translator/translate',
+  path: TRANSLATE_PATH,
   method: 'post',
   handler: async req => {
     // The body is parsed before `access` so the document can be passed to it; a requester
     // without access gets 400 instead of 403 for a malformed body, and learns nothing else.
     const body = parseBody(await readBody(req))
-    if (!body) return json({ error: 'bad-request' }, 400)
+    if (!body) return fail({ error: 'bad-request' }, 400)
     if (!(await settings.access({ req, ref: body.ref, operation: 'translate' })))
-      return json({ error: 'forbidden' }, 403)
-    if (!settings.provider) return json({ error: 'not-configured' }, 503)
+      return fail({ error: 'forbidden' }, 403)
+    if (!settings.provider) return fail({ error: 'not-configured' }, 503)
     const targets = resolveTargets(settings, body)
     if (!Array.isArray(targets)) return targets
     const fieldPermissions = await checkDocument({ req, body })
@@ -187,7 +192,7 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     // The lock is per document, not per locale: two jobs for the same document at once
     // would write in parallel and one would overwrite the other.
     const busy = records.filter(isBusy).map(item => item.targetLocale)
-    if (busy.length > 0) return json({ error: 'busy', busy }, 409)
+    if (busy.length > 0) return fail({ error: 'busy', busy }, 409)
 
     const { recordsSaved } = await queueTranslations({
       req,
@@ -196,13 +201,14 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
       targets,
       fieldPermissions,
     })
-    if (!recordsSaved) return json({ error: 'records-failed', queued: targets }, 500)
-    return json({ queued: targets }, 202)
+    if (!recordsSaved) return fail({ error: 'records-failed', queued: targets }, 500)
+    const queued: TranslateQueuedBody = { queued: targets }
+    return json(queued, 202)
   },
 })
 
 const statusEndpoint = (settings: TranslatorSettings): Endpoint => ({
-  path: '/translator/status',
+  path: STATUS_PATH,
   method: 'get',
   handler: async req => {
     const params = req.searchParams
@@ -212,9 +218,9 @@ const statusEndpoint = (settings: TranslatorSettings): Endpoint => ({
       id: params.get('id') ?? undefined,
     })
     if (!(await settings.access({ req, ref: ref ?? undefined, operation: 'status' })))
-      return json({ error: 'forbidden' }, 403)
+      return fail({ error: 'forbidden' }, 403)
     const status = ref ? await buildStatus({ req, settings, ref }) : null
-    return status ? json(status, 200) : json({ error: 'not-found' }, 404)
+    return status ? json(status, 200) : fail({ error: 'not-found' }, 404)
   },
 })
 

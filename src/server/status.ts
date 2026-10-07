@@ -3,6 +3,7 @@ import type { Block, PayloadRequest, SanitizedFieldsPermissions } from 'payload'
 import { countChanged, countMissing } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
 import type { TranslatableValue } from '../core/types.js'
+import type { LocaleStatus, StatusResponse } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { Entity, EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
@@ -10,28 +11,6 @@ import { notifyLiveWrites } from './liveWrites.js'
 import type { TranslationRecord } from './records.js'
 import { findRecords } from './records.js'
 import type { TranslatorSettings } from './settings.js'
-
-export type LocaleStatus = {
-  locale: string
-  state: 'none' | 'queued' | 'running' | 'done' | 'failed'
-  // Locale it was last translated from; `null` without a record.
-  sourceLocale: string | null
-  stale: boolean
-  changed: number
-  missing: number
-  error: string | null
-  translatedAt: string | null
-  kept: number
-}
-
-export type StatusResponse = {
-  enabled: boolean
-  writesLive: boolean
-  // The document's latest publication: a draft translated before it is already published.
-  // Always `null` without drafts.
-  lastPublishedAt: string | null
-  locales: LocaleStatus[]
-}
 
 type LocaleRecord = TranslationRecord & { targetLocale: string }
 
