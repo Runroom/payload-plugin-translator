@@ -1,5 +1,5 @@
-// Lo que identifica en los endpoints lo que se está editando: un global por su slug, un
-// documento por colección e id. `null` mientras Payload aún no lo sabe (un alta nueva).
+// What identifies, for the endpoints, what is being edited: a global by its slug, a
+// document by collection and id. `null` while Payload does not know it yet (a new document).
 export type Target = Record<string, string>
 
 export const targetOf = ({

@@ -19,11 +19,11 @@ const needsRevalidation = (record: TranslationRecord): boolean =>
   (!record.revalidatedAt ||
     Date.parse(record.translatedAt) > Date.parse(record.revalidatedAt))
 
-// El job escribe después de responder al POST, fuera de cualquier request de Next: ahí
-// `revalidatePath` se pierde (el route handler ya vació sus revalidaciones pendientes) o
-// lanza (cron). `GET /status` sí es una request real, y la interfaz lo consulta al
-// terminar, así que el aviso a la web se da desde aquí, una vez por traducción. Se marca
-// también si el gancho falla: reintentarlo en cada sondeo solo llenaría el log.
+// The job writes after the POST has been answered, outside any Next request: there
+// `revalidatePath` is lost (the route handler already flushed its pending revalidations)
+// or throws (cron). `GET /status` is a real request, and the UI polls it when the job
+// finishes, so the website is notified from here, once per translation. The record is
+// marked even if the hook fails: retrying it on every poll would only fill the log.
 export const notifyLiveWrites = async ({
   req,
   settings,
@@ -48,14 +48,14 @@ export const notifyLiveWrites = async ({
       locales: pending.map(record => record.targetLocale),
     })
   } catch (err) {
-    logger.warn({ err, msg: 'onLiveWrite del traductor ha fallado' })
+    logger.warn({ err, msg: 'Translator onLiveWrite failed' })
   }
   const revalidatedAt = new Date().toISOString()
   for (const record of pending) {
     try {
       await markRevalidated(req.payload, { id: record.id, revalidatedAt })
     } catch (err) {
-      logger.warn({ err, msg: 'No se pudo guardar revalidatedAt de la traducción' })
+      logger.warn({ err, msg: 'Could not save the translation revalidatedAt' })
     }
   }
 }

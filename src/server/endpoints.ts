@@ -1,5 +1,6 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
+import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
 import { entityOf, GLOBAL_DOC_ID, localesOf } from './entity.js'
 import { findRecords, saveRecord } from './records.js'
@@ -16,7 +17,7 @@ type TranslateBody = {
 
 const json = (body: unknown, status: number): Response => Response.json(body, { status })
 
-// Un global se pide por `global`; un documento, por `collection` + `id`.
+// A global is requested by `global`; a document, by `collection` + `id`.
 const refOf = (value: {
   global?: unknown
   collection?: unknown
@@ -59,9 +60,9 @@ const queueTranslations = async ({
   settings: TranslatorSettings
   body: TranslateBody
   targets: string[]
-}): Promise<void> => {
-  // El job va antes que los registros: un `queued` sin job bloquearía el documento con
-  // 409 hasta que caduque.
+}): Promise<{ recordsSaved: boolean }> => {
+  // The job goes before the records: a `queued` record without a job would lock the
+  // document with 409 until it expires.
   const job = (await req.payload.jobs.queue({
     task: TRANSLATE_TASK_SLUG as never,
     queue: settings.queue,
@@ -72,21 +73,33 @@ const queueTranslations = async ({
       overwriteEdited: body.overwriteEdited,
     } as never,
   })) as unknown as { id: string | number }
-  for (const targetLocale of targets) {
-    const key = { ...body.ref, targetLocale }
-    await saveRecord(req.payload, { key, data: { status: 'queued', error: null } })
+  // If the records fail, the job already exists: it is run anyway, because it sets them to
+  // `running`/`done` itself when it runs (`saveRecord` creates any that is missing), so it
+  // is not left orphaned waiting for the cron. The response does warn (500): the client
+  // cannot assume the document got locked.
+  let recordsSaved = true
+  try {
+    for (const targetLocale of targets) {
+      const key = { ...body.ref, targetLocale }
+      await saveRecord(req.payload, { key, data: { status: 'queued', error: null } })
+    }
+  } catch (error) {
+    recordsSaved = false
+    req.payload.logger.error({ err: error, msg: 'Translator records save failed' })
   }
-  // Se lanza al encolar para no esperar al cron, y sin esperar porque la traducción no
-  // cabe en la respuesta HTTP: el servidor es un proceso Node de larga vida y la promesa
-  // sobrevive a la respuesta. El cron solo lanza jobs encolados que nadie ejecutó (por
-  // ejemplo tras un reinicio) y no rescata uno que estaba en curso; en E2E no hay cron.
-  // Se filtra por id porque `run` sin `where` coge los jobs más antiguos de la cola, no
-  // este; `runByID` no sirve porque ejecuta el job aunque el cron ya lo esté procesando.
+  // It is run when queued so it does not wait for the cron, and without awaiting it because
+  // the translation does not fit in the HTTP response: the server is a long-lived Node
+  // process and the promise outlives the response. The cron only runs queued jobs nobody
+  // ran (after a restart, for instance) and does not rescue one that was in progress; E2E
+  // runs have no cron. It filters by id because `run` without `where` takes the oldest jobs
+  // in the queue, not this one; `runByID` does not work because it runs the job even while
+  // the cron is already processing it.
   void req.payload.jobs
     .run({ queue: settings.queue, limit: 1, where: { id: { in: [job.id] } } })
     .catch((error: unknown) => {
       req.payload.logger.error({ err: error, msg: 'Translator queue run failed' })
     })
+  return { recordsSaved }
 }
 
 const readBody = async (req: PayloadRequest): Promise<unknown> => {
@@ -110,7 +123,7 @@ const entityExists = async ({
   return entity !== null && (await entity.find({ locale })) !== null
 }
 
-// El origen es el idioma abierto en el admin; los destinos, cualquier otro de la entidad.
+// The source is the locale open in the admin; the targets, any other locale of the entity.
 const targetsOf = (body: TranslateBody, config: EntityLocales): string[] | null => {
   if (!config.locales.includes(body.sourceLocale)) return null
   const targets = body.targetLocales.filter(
@@ -119,31 +132,61 @@ const targetsOf = (body: TranslateBody, config: EntityLocales): string[] | null 
   return targets.length > 0 ? targets : null
 }
 
+// A global that is not configured does not exist for the translator; an unconfigured
+// collection is a malformed request.
+const resolveTargets = (
+  settings: TranslatorSettings,
+  body: TranslateBody,
+): Response | string[] => {
+  const config = localesOf(settings, body.ref)
+  if (!config) {
+    const isGlobal = body.ref.entityType === 'global'
+    return json({ error: isGlobal ? 'not-found' : 'bad-request' }, isGlobal ? 404 : 400)
+  }
+  return targetsOf(body, config) ?? json({ error: 'bad-request' }, 400)
+}
+
+// Without read access the document does not exist for the requester; without update
+// access, the request is denied: translating writes to it (and, without drafts, publishes).
+const refuseDocument = async ({
+  req,
+  body,
+}: {
+  req: PayloadRequest
+  body: TranslateBody
+}): Promise<Response | null> => {
+  if (!(await entityExists({ req, ref: body.ref, locale: body.sourceLocale })))
+    return json({ error: 'not-found' }, 404)
+  const permissions = await docPermissions({ req, ref: body.ref })
+  if (!permissions.read) return json({ error: 'not-found' }, 404)
+  if (!permissions.update) return json({ error: 'forbidden' }, 403)
+  return null
+}
+
 const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
   path: '/translator/translate',
   method: 'post',
   handler: async req => {
-    if (!(await settings.access({ req }))) return json({ error: 'forbidden' }, 403)
-    if (!settings.provider) return json({ error: 'not-configured' }, 503)
+    // The body is parsed before `access` so the document can be passed to it; a requester
+    // without access gets 400 instead of 403 for a malformed body, and learns nothing else.
     const body = parseBody(await readBody(req))
     if (!body) return json({ error: 'bad-request' }, 400)
-    const config = localesOf(settings, body.ref)
-    if (!config) {
-      const isGlobal = body.ref.entityType === 'global'
-      return json({ error: isGlobal ? 'not-found' : 'bad-request' }, isGlobal ? 404 : 400)
-    }
-    const targets = targetsOf(body, config)
-    if (!targets) return json({ error: 'bad-request' }, 400)
-    if (!(await entityExists({ req, ref: body.ref, locale: body.sourceLocale })))
-      return json({ error: 'not-found' }, 404)
+    if (!(await settings.access({ req, ref: body.ref, operation: 'translate' })))
+      return json({ error: 'forbidden' }, 403)
+    if (!settings.provider) return json({ error: 'not-configured' }, 503)
+    const targets = resolveTargets(settings, body)
+    if (!Array.isArray(targets)) return targets
+    const refused = await refuseDocument({ req, body })
+    if (refused) return refused
 
     const records = await findRecords(req.payload, body.ref)
-    // El bloqueo es por documento y no por idioma: dos jobs del mismo documento a la vez
-    // escribirían en paralelo y una pisaría a la otra.
+    // The lock is per document, not per locale: two jobs for the same document at once
+    // would write in parallel and one would overwrite the other.
     const busy = records.filter(isBusy).map(item => item.targetLocale)
     if (busy.length > 0) return json({ error: 'busy', busy }, 409)
 
-    await queueTranslations({ req, settings, body, targets })
+    const { recordsSaved } = await queueTranslations({ req, settings, body, targets })
+    if (!recordsSaved) return json({ error: 'records-failed', queued: targets }, 500)
     return json({ queued: targets }, 202)
   },
 })
@@ -152,13 +195,14 @@ const statusEndpoint = (settings: TranslatorSettings): Endpoint => ({
   path: '/translator/status',
   method: 'get',
   handler: async req => {
-    if (!(await settings.access({ req }))) return json({ error: 'forbidden' }, 403)
     const params = req.searchParams
     const ref = refOf({
       global: params.get('global') ?? undefined,
       collection: params.get('collection') ?? undefined,
       id: params.get('id') ?? undefined,
     })
+    if (!(await settings.access({ req, ref: ref ?? undefined, operation: 'status' })))
+      return json({ error: 'forbidden' }, 403)
     const status = ref ? await buildStatus({ req, settings, ref }) : null
     return status ? json(status, 200) : json({ error: 'not-found' }, 404)
   },

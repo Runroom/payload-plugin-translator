@@ -1,8 +1,14 @@
 import type { Config, Plugin } from 'payload'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { translatorPlugin } from '../src/index.js'
+import { translatorPlugin, translatorTranslations } from '../src/index.js'
 import { fakeProvider } from '../src/provider/fake.js'
+
+// Payload resolves per-document permissions against the database; here only the config
+// the plugin returns matters.
+vi.mock('../src/server/docAccess.js', () => ({
+  docPermissions: vi.fn().mockResolvedValue({ read: true, update: true }),
+}))
 
 const baseConfig = (): Config =>
   ({
@@ -181,8 +187,8 @@ describe('translatorPlugin', () => {
   })
 })
 
-// El status lista los idiomas de la entidad en el orden de la config: es la forma de ver
-// qué `locales` resolvió el plugin.
+// The status lists the entity's locales in config order: it is the way to see which
+// `locales` the plugin resolved.
 const statusLocales = async (options: { locales?: string[] }): Promise<string[]> => {
   const config = await translatorPlugin({
     collections: { events: options },
@@ -199,6 +205,7 @@ const statusLocales = async (options: { locales?: string[] }): Promise<string[]>
       config: { blocks: [], localization: { defaultLocale: 'es' } },
       find: async (): Promise<{ docs: unknown[] }> => ({ docs: [] }),
       findByID: async (): Promise<{ id: string }> => ({ id: 'e1' }),
+      findVersions: async (): Promise<{ docs: unknown[] }> => ({ docs: [] }),
     },
   }
   const body = (await (await handler(req)).json()) as { locales: { locale: string }[] }
@@ -262,5 +269,136 @@ describe('translatorPlugin with globals', () => {
     })
 
     expect(() => withGlobals({ footer: {} })(config)).toThrow(/columns/)
+  })
+})
+
+describe('translatorPlugin jobs concurrency', () => {
+  it('turns concurrency control on so the task key counts', async () => {
+    const config = await plugin(baseConfig())
+
+    expect(config.jobs?.enableConcurrencyControl).toBe(true)
+  })
+
+  it('respects a project that turned it off explicitly', async () => {
+    const config = await plugin({
+      ...baseConfig(),
+      jobs: { enableConcurrencyControl: false, tasks: [] },
+    })
+
+    expect(config.jobs?.enableConcurrencyControl).toBe(false)
+  })
+})
+
+describe('translatorPlugin admin texts', () => {
+  it('lets the project override a translator text without losing the rest', async () => {
+    const base = baseConfig()
+    const config = await plugin({
+      ...base,
+      i18n: {
+        translations: {
+          es: { general: { foo: 'bar' }, translator: { translate: 'Traducir con IA' } },
+        },
+      },
+    } as unknown as Config)
+    const es = config.i18n?.translations?.es as Record<string, Record<string, string>>
+
+    expect(es.translator?.translate).toBe('Traducir con IA')
+    expect(es.translator?.submit).toBe('Traducir')
+    expect(es.general?.foo).toBe('bar')
+  })
+
+  it('falls back to English for an admin language the plugin has no catalog for', async () => {
+    const base = baseConfig()
+    const config = await plugin({
+      ...base,
+      i18n: {
+        supportedLanguages: { de: {}, en: {} },
+        translations: { ca: { translator: { translate: 'Tradueix' } } },
+      },
+    } as unknown as Config)
+    const translations = config.i18n?.translations as Record<
+      string,
+      Record<string, Record<string, string>>
+    >
+
+    expect(translations.de?.translator?.translate).toBe(
+      translatorTranslations.en.translator.translate,
+    )
+    expect(translations.ca?.translator?.translate).toBe('Tradueix')
+    expect(translations.ca?.translator?.submit).toBe('Translate')
+    expect(translations.es?.translator?.submit).toBe('Traducir')
+  })
+})
+
+describe('translatorPlugin onInit', () => {
+  type AutoRun = { queue?: string; allQueues?: boolean; cron?: string }
+  const payloadWith = (
+    autoRun: AutoRun[] | ((payload: unknown) => Promise<AutoRun[]>) | undefined,
+  ): {
+    payload: Parameters<NonNullable<Config['onInit']>>[0]
+    warn: ReturnType<typeof vi.fn>
+  } => {
+    const warn = vi.fn()
+    return {
+      payload: { config: { jobs: { autoRun } }, logger: { warn } } as never,
+      warn,
+    }
+  }
+
+  it('warns when no autoRun entry processes the translations queue, after the project onInit', async () => {
+    const order: string[] = []
+    const config = await plugin({
+      ...baseConfig(),
+      onInit: async () => {
+        order.push('project')
+      },
+    })
+    const { payload, warn } = payloadWith([{ cron: '* * * * *', queue: 'default' }])
+    warn.mockImplementation(() => order.push('warn'))
+
+    await config.onInit!(payload)
+
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain('"translations"')
+    expect(order).toEqual(['project', 'warn'])
+  })
+
+  it('stays quiet when the queue is scheduled, by name, through allQueues or from a function', async () => {
+    const config = await plugin(baseConfig())
+    const cases = [
+      payloadWith([{ queue: 'translations' }]),
+      payloadWith([{ allQueues: true }]),
+      payloadWith(async () => [{ queue: 'translations' }]),
+    ]
+
+    for (const { payload, warn } of cases) {
+      await config.onInit!(payload)
+      expect(warn).not.toHaveBeenCalled()
+    }
+  })
+
+  it('stays quiet without a provider, since nothing is translated', async () => {
+    const config = await translatorPlugin({
+      collections: { events: {} },
+      provider: null,
+      access: () => true,
+    })(baseConfig())
+    const { payload, warn } = payloadWith(undefined)
+
+    await config.onInit!(payload)
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('warns without autoRun at all, and an entry without queue only covers "default"', async () => {
+    const config = await plugin(baseConfig())
+    const none = payloadWith(undefined)
+    const unnamed = payloadWith([{ cron: '* * * * *' }])
+
+    await config.onInit!(none.payload)
+    await config.onInit!(unnamed.payload)
+
+    expect(none.warn).toHaveBeenCalledTimes(1)
+    expect(unnamed.warn).toHaveBeenCalledTimes(1)
   })
 })

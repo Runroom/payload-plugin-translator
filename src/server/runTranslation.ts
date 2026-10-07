@@ -1,33 +1,15 @@
 import type { Payload } from 'payload'
 import { JobCancelledError, NotFound, ValidationError } from 'payload'
 
-import type { FieldWrite } from '../core/apply.js'
-import { buildUpdateData } from '../core/apply.js'
-import { fingerprintOf, unitsOf } from '../core/fingerprint.js'
-import {
-  extractContainers,
-  isLexicalState,
-  MarkError,
-  replaceContainers,
-} from '../core/lexical.js'
-import type { FieldHashes, TranslationPlan } from '../core/plan.js'
-import { planTranslation } from '../core/plan.js'
-import { collectTranslatables } from '../core/schema.js'
-import type { TranslatableValue } from '../core/types.js'
-import { translateUnits } from '../provider/translateUnits.js'
-import type { TranslationProvider } from '../provider/types.js'
+import { MarkError } from '../core/lexical.js'
 import { ProviderError } from '../provider/types.js'
-import type { Entity, EntityRef } from './entity.js'
+import type { EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
+import type { LocaleRun, Outcome, TranslationJobInput } from './localeRun.js'
+import { ConcurrentEditError, execute, keyOf } from './localeRun.js'
 import type { RecordKey } from './records.js'
 import { findRecord, saveRecord } from './records.js'
 import type { TranslatorSettings } from './settings.js'
-
-type TranslationJobInput = EntityRef & {
-  sourceLocale: string
-  targetLocales: string[]
-  overwriteEdited: boolean
-}
 
 export type RawTranslationJobInput = Omit<
   TranslationJobInput,
@@ -37,193 +19,24 @@ export type RawTranslationJobInput = Omit<
   targetLocales: unknown
 }
 
-const unitIdsOf = (value: TranslatableValue): [string, string][] => {
-  if (value.kind === 'text') return [[value.path, unitsOf(value)[0] ?? '']]
-  const containers = isLexicalState(value.value) ? extractContainers(value.value) : []
-  return containers.map((text, index) => [`${value.path}#${index}`, text])
-}
-
-const translatedValue = (
-  value: TranslatableValue,
-  result: Map<string, string>,
-): unknown => {
-  if (value.kind === 'text') return result.get(value.path)
-  if (!isLexicalState(value.value)) return value.value
-  const count = extractContainers(value.value).length
-  const texts = Array.from(
-    { length: count },
-    (_, index) => result.get(`${value.path}#${index}`) ?? '',
-  )
-  return replaceContainers(value.value, texts)
-}
-
-const keyOf = (input: EntityRef, targetLocale: string): RecordKey => ({
-  entityType: input.entityType,
-  collectionSlug: input.collectionSlug,
-  docId: input.docId,
-  targetLocale,
-})
-
-type LocaleRun = {
-  payload: Payload
-  provider: TranslationProvider
-  settings: TranslatorSettings
-  input: TranslationJobInput
-  entity: Entity
-  sourceLocale: string
-  targetLocale: string
-}
-
-const translatePlan = async ({
-  plan,
-  run: { payload, provider, settings, input, sourceLocale, targetLocale },
-}: {
-  plan: TranslationPlan
-  run: LocaleRun
-}): Promise<{ writes: FieldWrite[]; hashes: FieldHashes }> => {
-  const units = new Map(plan.translate.flatMap(unitIdsOf))
-  const result = await translateUnits({
-    provider,
-    units,
-    sourceLocale,
-    targetLocale,
-    instructions: settings.instructions({ sourceLocale, targetLocale }),
-    // El latido solo alarga la vida del bloqueo: perderlo no justifica tirar lo traducido.
-    onBatch: async () => {
-      try {
-        await saveRecord(payload, {
-          key: keyOf(input, targetLocale),
-          data: { status: 'running' },
-        })
-      } catch (err) {
-        payload.logger.warn({ err, msg: 'No se pudo guardar el latido de la traducción' })
-      }
-    },
-  })
-  const writes: FieldWrite[] = []
-  const hashes: FieldHashes = {}
-  for (const value of plan.translate) {
-    const output = translatedValue(value, result)
-    writes.push({ segments: value.segments, value: output })
-    hashes[value.path] = {
-      source: fingerprintOf(value)!,
-      output: fingerprintOf({ ...value, value: output }),
-    }
-  }
-  return { writes, hashes }
-}
-
-class ConcurrentEditError extends Error {
-  override readonly name = 'ConcurrentEditError'
-}
-
-// Payload no combina locales al guardar: cada guardado (versión o documento, según haya
-// borradores) se escribe entero a partir del último, así que un guardado de otro idioma
-// que se solape con el nuestro puede devolver los campos de este locale a su valor
-// anterior.
-const verifyWrite = async ({
-  run: { payload, input, entity, targetLocale },
-  hashes,
-  previous,
-}: {
-  run: LocaleRun
-  hashes: FieldHashes
-  previous: FieldHashes
-}): Promise<void> => {
-  const saved = await entity.read({ locale: targetLocale, withFallback: false })
-  const values = collectTranslatables({
-    fields: entity.fields,
-    data: saved,
-    blocks: payload.config.blocks ?? [],
-  })
-  const verified = Object.entries(hashes).filter(([path, { output }]) => {
-    const value = values.find(item => item.path === path)
-    return (value ? fingerprintOf(value) : null) === output
-  })
-  if (verified.length === Object.keys(hashes).length) return
-  // Sin esto, en el reintento los campos que sí quedaron escritos no coincidirían con
-  // ninguna huella nuestra y pasarían a «editados a mano».
-  await saveVerified({
-    payload,
-    key: keyOf(input, targetLocale),
-    fields: { ...previous, ...Object.fromEntries(verified) },
-  })
-  throw new ConcurrentEditError(
-    `Una edición simultánea sobrescribió la traducción de ${targetLocale}`,
-  )
-}
-
-const saveVerified = async ({
-  payload,
-  key,
-  fields,
-}: {
-  payload: Payload
-  key: RecordKey
-  fields: FieldHashes
-}): Promise<void> => {
-  try {
-    await saveRecord(payload, { key, data: { fields } })
-  } catch (err) {
-    payload.logger.error({ err, msg: 'No se pudieron guardar las huellas verificadas' })
-  }
-}
-
-// El destino se vuelve a leer justo antes de escribir: entre la planificación y este
-// punto pasan las llamadas al proveedor, y los grupos se envían enteros, así que una
-// foto vieja devolvería a su valor anterior la agenda u otros datos no localizados que
-// una importación o la editora hayan cambiado mientras tanto.
-const writeTranslation = async ({
-  run,
-  writes,
-}: {
-  run: LocaleRun
-  writes: FieldWrite[]
-}): Promise<void> => {
-  const { entity, targetLocale } = run
-  const targetDoc = await entity.read({ locale: targetLocale, withFallback: false })
-  await entity.write({
-    locale: targetLocale,
-    data: buildUpdateData({ targetDoc, writes }),
-  })
-}
-
-const execute = async (
-  run: LocaleRun,
-): Promise<{ hashes: FieldHashes; kept: string[] }> => {
-  const { payload, input, entity, sourceLocale, targetLocale } = run
-  const { fields } = entity
-  const [sourceDoc, targetDoc, record] = await Promise.all([
-    entity.read({ locale: sourceLocale, withFallback: true }),
-    entity.read({ locale: targetLocale, withFallback: false }),
-    findRecord(payload, keyOf(input, targetLocale)),
-  ])
-  const blocks = payload.config.blocks ?? []
-  const previous = record?.fields ?? {}
-  const plan = planTranslation({
-    source: collectTranslatables({ fields, data: sourceDoc, blocks }),
-    target: collectTranslatables({ fields, data: targetDoc, blocks }),
-    previous,
-    overwriteEdited: input.overwriteEdited,
-  })
-  if (plan.translate.length === 0) return { hashes: plan.hashes, kept: plan.kept }
-
-  const { writes, hashes } = await translatePlan({ plan, run })
-  await writeTranslation({ run, writes })
-  await verifyWrite({ run, hashes, previous })
-  return { hashes: { ...plan.hashes, ...hashes }, kept: plan.kept }
-}
-
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
-// Sin borradores Payload valida el documento entero al guardar (un `label` obligatorio
-// vacío en el destino, un validador de personas): reintentar no lo arregla.
+// A locale that already failed for good in this same job: the POST sets every record to
+// `queued` before the job starts, so a `failed` found here can only come from an earlier
+// attempt of this job. Repeating it would spend provider calls to fail the same way.
+class PreviousFailure extends Error {
+  override readonly name = 'PreviousFailure'
+}
+
+// Without drafts Payload validates the whole document on save (a required `label` empty in
+// the target, a custom validator): retrying does not fix it.
 const isUnrecoverable = (error: unknown): boolean =>
   (error instanceof ProviderError && !error.retryable) ||
   error instanceof MarkError ||
   error instanceof NotFound ||
-  error instanceof ValidationError
+  error instanceof ValidationError ||
+  error instanceof PreviousFailure
 
 const saveFailure = async ({
   payload,
@@ -239,8 +52,45 @@ const saveFailure = async ({
   try {
     await saveRecord(payload, { key, data: { status, error: message } })
   } catch (err) {
-    payload.logger.error({ err, msg: 'No se pudo guardar el fallo de la traducción' })
+    payload.logger.error({ err, msg: 'Could not save the translation failure' })
   }
+}
+
+// With nothing translated, `translatedAt` stays the one of the last real translation:
+// moving it would make `onLiveWrite` notify the website again with nothing changed.
+const saveDone = async (
+  { payload, sourceLocale }: LocaleRun,
+  key: RecordKey,
+  { hashes, kept, translated }: Outcome,
+): Promise<void> => {
+  await saveRecord(payload, {
+    key,
+    data: {
+      status: 'done',
+      fields: hashes,
+      kept,
+      error: null,
+      sourceLocale,
+      ...(translated ? { translatedAt: new Date().toISOString() } : {}),
+    },
+  })
+}
+
+// While a retry is left the record stays `queued`: that keeps the document locked, so a
+// new POST does not start another job that would run in parallel with this one.
+const recordFailure = async (
+  { payload }: LocaleRun,
+  key: RecordKey,
+  { error, isLastAttempt }: { error: unknown; isLastAttempt: boolean },
+): Promise<void> => {
+  const willRetry = !isLastAttempt && !isUnrecoverable(error)
+  const retryNote = willRetry && error instanceof ConcurrentEditError
+  await saveFailure({
+    payload,
+    key,
+    message: retryNote ? `${messageOf(error)}; it will be retried` : messageOf(error),
+    status: willRetry ? 'queued' : 'failed',
+  })
 }
 
 const translateLocale = async ({
@@ -250,34 +100,18 @@ const translateLocale = async ({
   run: LocaleRun
   isLastAttempt: boolean
 }): Promise<{ error: unknown } | null> => {
-  const { payload, input, sourceLocale, targetLocale } = run
+  const { payload, input, targetLocale } = run
   const key = keyOf(input, targetLocale)
   try {
+    const record = await findRecord(payload, key)
+    if (record?.status === 'failed') {
+      return { error: new PreviousFailure(record.error ?? `${targetLocale} failed`) }
+    }
     await saveRecord(payload, { key, data: { status: 'running', error: null } })
-    const { hashes, kept } = await execute(run)
-    await saveRecord(payload, {
-      key,
-      data: {
-        status: 'done',
-        fields: hashes,
-        kept,
-        error: null,
-        sourceLocale,
-        translatedAt: new Date().toISOString(),
-      },
-    })
+    await saveDone(run, key, await execute(run, record?.fields ?? {}))
     return null
   } catch (error) {
-    // Mientras quede un reintento el registro sigue en `queued`: así el documento sigue
-    // bloqueado y un POST nuevo no lanza otro job que correría en paralelo con este.
-    const willRetry = !isLastAttempt && !isUnrecoverable(error)
-    const retryNote = willRetry && error instanceof ConcurrentEditError
-    await saveFailure({
-      payload,
-      key,
-      message: retryNote ? `${messageOf(error)}; se reintentará` : messageOf(error),
-      status: willRetry ? 'queued' : 'failed',
-    })
+    await recordFailure(run, key, { error, isLastAttempt })
     return { error }
   }
 }
@@ -299,8 +133,8 @@ const cancelAll = async ({
   throw new JobCancelledError(message)
 }
 
-// Un reintento del job vuelve a recorrer todos los idiomas, pero los ya hechos salen sin
-// cambios por sus huellas: reintentar no repite llamadas al proveedor ni escrituras.
+// A job retry goes through every locale again, but the finished ones come out unchanged
+// thanks to their fingerprints: retrying repeats neither provider calls nor writes.
 const throwFailures = (errors: unknown[]): void => {
   if (errors.length === 0) return
   const retryable = errors.find(error => !isUnrecoverable(error))
@@ -309,9 +143,7 @@ const throwFailures = (errors: unknown[]): void => {
 }
 
 const nameOf = ({ entityType, collectionSlug }: EntityRef): string =>
-  entityType === 'global'
-    ? `El global ${collectionSlug}`
-    : `La colección ${collectionSlug}`
+  entityType === 'global' ? `Global ${collectionSlug}` : `Collection ${collectionSlug}`
 
 const requestedLocales = (raw: unknown): string[] =>
   Array.isArray(raw)
@@ -333,10 +165,10 @@ const prepare = async ({
   const requested = requestedLocales(input.targetLocales)
   const config = localesOf(settings, input)
   if (!config) {
-    const message = `${name} no es traducible`
+    const message = `${name} is not translatable`
     return cancelAll({ payload, input, targets: requested, message })
   }
-  // Un job encolado antes de poder elegir el origen no lo trae.
+  // An input without `sourceLocale` is translated from the default locale.
   const sourceLocale = input.sourceLocale ?? defaultLocaleOf(payload)
   const targets = requested.filter(
     locale => config.locales.includes(locale) && locale !== sourceLocale,
@@ -344,13 +176,13 @@ const prepare = async ({
   const cancel = (reason: string): Promise<never> =>
     cancelAll({ payload, input, targets, message: reason })
   if (!config.locales.includes(sourceLocale))
-    return cancel(`${name} no se traduce desde ${sourceLocale}`)
+    return cancel(`${name} is not translated from ${sourceLocale}`)
   if (targets.length === 0)
-    return cancel('La traducción no pide ningún idioma destino válido')
+    return cancel('The translation requests no valid target locale')
   const entity = entityOf(payload, input)
-  if (!entity) return cancel(`${name} no existe en Payload`)
+  if (!entity) return cancel(`${name} does not exist in Payload`)
   const provider = settings.provider
-  if (!provider) return cancel('El traductor no está configurado')
+  if (!provider) return cancel('The translator is not configured')
   return {
     run: {
       payload,
@@ -364,8 +196,8 @@ const prepare = async ({
   }
 }
 
-// Los idiomas van en serie y dentro de un solo job: cada escritura guarda el documento
-// entero a partir de la última versión, y dos en paralelo sobre el mismo documento se pisan.
+// Locales run in sequence and inside a single job: each write saves the whole document from
+// the latest version, and two in parallel on the same document overwrite each other.
 export const runTranslation = async ({
   payload,
   input,

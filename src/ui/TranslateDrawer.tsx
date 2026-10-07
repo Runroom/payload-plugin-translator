@@ -8,6 +8,7 @@ import type { LocaleStatus, StatusResponse } from '../server/status.js'
 import { isUpToDate, LocaleStates } from './LocaleStates.js'
 import { Notice } from './Notice.js'
 import { TranslateOptions } from './TranslateOptions.js'
+import type { LocaleLink } from './localeLink.js'
 import type { Message, Translate } from './messages.js'
 import { defaultOptionValues, TRANSLATE_OPTIONS } from './options.js'
 import type { SendTranslation } from './useTranslateRequest.js'
@@ -23,13 +24,14 @@ type DrawerProps = {
   labelOf: (code: string) => string
   sourceLabelOf: (item: LocaleStatus) => string
   language: string
+  linkOf: (locale: string) => LocaleLink | null
   refresh: () => Promise<void>
   send: SendTranslation
   t: Translate
 }
 
-// El `Drawer` de Payload deja el diálogo con `aria-label` igual al slug, que es lo que
-// anunciaría el lector de pantalla; se le apunta al título visible.
+// Payload's `Drawer` leaves the dialog with an `aria-label` equal to the slug, which is
+// what the screen reader would announce; it is pointed at the visible title instead.
 const DrawerHeader = ({
   slug,
   title,
@@ -58,17 +60,19 @@ const DrawerHeader = ({
   )
 }
 
+// The bar's live region is outside the `<dialog aria-modal>` and some screen readers
+// announce nothing outside the modal: while the drawer is open, this one announces.
 const Summary = ({ messages, t }: Pick<DrawerProps, 'messages' | 't'>): ReactElement => (
-  <div className="rr-translator__summary">
+  <div role="status" className="rr-translator__summary">
     {messages.map(message => (
       <p key={message.key}>{t(message.key as never, message.vars)}</p>
     ))}
   </div>
 )
 
-// Siempre con el aspecto primario: un botón gris sin idiomas marcados parecía roto. Solo
-// se ve inactivo con una traducción en curso, y entonces dice por qué. `aria-disabled` y
-// no `disabled`: el botón pulsado conserva el foco dentro del drawer mientras se envía.
+// Always with the primary look: a grey button with no locales checked looked broken. It only
+// looks inactive with a translation in progress, and then it says why. `aria-disabled` and
+// not `disabled`: the pressed button keeps the focus inside the drawer while sending.
 const SubmitFooter = ({
   busy,
   messages,
@@ -109,8 +113,8 @@ const SubmitFooter = ({
   )
 }
 
-// Montado solo con el drawer abierto: la selección y las opciones parten de cero cada
-// vez, y el estado se trae de nuevo por si el origen cambió sin recargar.
+// Mounted only while the drawer is open: the selection and the options start from scratch
+// every time, and the status is fetched again in case the source changed without a reload.
 const DrawerBody = ({
   status,
   translated,
@@ -120,6 +124,7 @@ const DrawerBody = ({
   labelOf,
   sourceLabelOf,
   language,
+  linkOf,
   refresh,
   send,
   t,
@@ -142,8 +147,8 @@ const DrawerBody = ({
   return (
     <div className="rr-translator__drawer">
       {notice}
-      {/* Dónde queda la traducción, antes de los idiomas: «Reintentar» también escribe, y
-          en el orden de tabulación el aviso tiene que llegar antes que el primer botón. */}
+      {/* Where the translation ends up, before the locales: "Retry" writes too, and in the
+          tab order the notice has to come before the first button. */}
       {status.writesLive ? (
         <Notice id={modeDescription} tone="warning" icon="warning">
           {t('translator:writesLive' as never)}
@@ -173,6 +178,7 @@ const DrawerBody = ({
         onRetry={code => void translate([code])}
         retryDescribedBy={modeDescription}
         writesLive={status.writesLive}
+        linkOf={linkOf}
         t={t}
       />
       <TranslateOptions

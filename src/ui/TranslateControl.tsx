@@ -1,9 +1,11 @@
 'use client'
 
 import {
+  Button,
   useConfig,
   useDocumentInfo,
   useDrawerSlug,
+  useEditDepth,
   useLocale,
   useModal,
   useTranslation,
@@ -11,15 +13,17 @@ import {
 import type { Locale } from 'payload'
 import type { ReactElement } from 'react'
 
-import type { LocaleStatus } from '../server/status.js'
+import type { LocaleStatus, StatusResponse } from '../server/status.js'
 import { Notice } from './Notice.js'
 import { TargetNotice } from './TargetNotice.js'
 import { TranslateButton } from './TranslateButton.js'
 import { TranslateDrawer } from './TranslateDrawer.js'
 import { TranslateStatus } from './TranslateStatus.js'
-import type { Translate } from './messages.js'
+import { localeLinkOf } from './localeLink.js'
+import type { Message, Translate } from './messages.js'
 import { summaryMessages } from './messages.js'
 import { targetOf } from './target.js'
+import { useSummaryBatch } from './useSummaryBatch.js'
 import { useTranslateRequest } from './useTranslateRequest.js'
 import { isInFlight, isRunning, useTranslatorStatus } from './useTranslatorStatus.js'
 
@@ -42,12 +46,12 @@ const localeLabel = ({
   return found.label[language] ?? Object.values(found.label)[0] ?? code
 }
 
-// Sin borradores no queda nada por revisar antes de publicar: ya está publicado.
+// Without drafts there is nothing left to review before publishing: it is already live.
 const doneKeyOf = (status: { writesLive: boolean }): string =>
   status.writesLive ? 'translator:doneLive' : 'translator:done'
 
-// La misma regla con la que la barra de Payload dice «Borrador» o «Cambiado»
-// (`elements/Status`). Publicar pone el contador a 0 en `useDocumentInfo` sin recargar.
+// The same rule Payload's bar uses to say "Draft" or "Changed" (`elements/Status`).
+// Publishing sets the counter to 0 in `useDocumentInfo` without reloading.
 const hasUnpublishedChanges = ({
   hasPublishedDoc,
   unpublishedVersionCount,
@@ -56,27 +60,93 @@ const hasUnpublishedChanges = ({
   unpublishedVersionCount: number
 }): boolean => !hasPublishedDoc || unpublishedVersionCount > 0
 
+// Payload's counter is for the whole document: with one locale already published and
+// another one in draft, it would be positive on the published one too. Only a translation
+// newer than the latest publication is still unpublished.
+const translatedAfterPublishing = ({
+  translatedAt,
+  lastPublishedAt,
+}: {
+  translatedAt: string | null
+  lastPublishedAt: string | null | undefined
+}): boolean => {
+  if (!translatedAt) return false
+  if (!lastPublishedAt) return true
+  return Date.parse(translatedAt) > Date.parse(lastPublishedAt)
+}
+
+const STATUS_UNAVAILABLE: Message = { key: 'translator:statusUnavailable' }
+
+const StalledNotice = ({
+  onRetry,
+  t,
+}: {
+  onRetry: () => void
+  t: Translate
+}): ReactElement => (
+  <Notice
+    tone="warning"
+    icon="warning"
+    srText={t(STATUS_UNAVAILABLE.key as never)}
+    action={
+      <Button buttonStyle="secondary" size="small" margin={false} onClick={onRetry}>
+        {t('translator:retry' as never)}
+      </Button>
+    }
+  >
+    {t('translator:statusUnavailableShort' as never)}
+  </Notice>
+)
+
+const unpublishedDraftOf = ({
+  status,
+  item,
+  documentInfo,
+}: {
+  status: StatusResponse
+  item: LocaleStatus
+  documentInfo: { hasPublishedDoc: boolean; unpublishedVersionCount: number }
+}): boolean =>
+  !status.writesLive &&
+  hasUnpublishedChanges(documentInfo) &&
+  translatedAfterPublishing({
+    translatedAt: item.translatedAt,
+    lastPublishedAt: status.lastPublishedAt,
+  })
+
 export const TranslateControl = (): ReactElement | null => {
   const { id, collectionSlug, globalSlug, hasPublishedDoc, unpublishedVersionCount } =
     useDocumentInfo()
   const locale = useLocale()
   const { config } = useConfig()
   const { t, i18n } = useTranslation()
-  const { openModal } = useModal()
+  const { openModal, isModalOpen } = useModal()
+  const editDepth = useEditDepth()
   const drawerSlug = useDrawerSlug('translator')
   const translate = t as unknown as Translate
   const apiBase = `${config.serverURL ?? ''}${config.routes.api}`
   const target = targetOf({ id, collectionSlug, globalSlug })
-  const { status, refresh, markQueued, seen } = useTranslatorStatus({ apiBase, target })
+  const { status, refresh, markQueued, seen, stalled, retry } = useTranslatorStatus({
+    apiBase,
+    target,
+  })
+  const { batch, launch, reset } = useSummaryBatch(status)
   const request = useTranslateRequest({
     apiBase,
     target,
     sourceLocale: locale.code,
     markQueued,
     refresh,
+    onLaunched: launch,
+    onRefused: reset,
   })
 
   if (!status?.enabled) return null
+  // The open locale is the source; the others, the drawer's targets. Its own record (if
+  // someone translated it from another locale) feeds the bar's notice. A locale the entity
+  // does not translate cannot be the source: the server would answer 400.
+  const current = status.locales.find(item => item.locale === locale.code)
+  if (!current) return null
 
   const labelOf = (code: string): string =>
     localeLabel({
@@ -84,43 +154,42 @@ export const TranslateControl = (): ReactElement | null => {
       code,
       language: i18n.language,
     })
-  // Un registro terminado sin origen no debería existir; por si acaso, el idioma por defecto.
+  // A record without `sourceLocale` is measured against the default locale.
   const sourceOf = (item: LocaleStatus): string =>
     item.sourceLocale ??
     (config.localization ? config.localization.defaultLocale : locale.code)
   const sourceLabelOf = (item: LocaleStatus): string => labelOf(sourceOf(item))
+  const linkOf = localeLinkOf({ editDepth, adminRoute: config.routes.admin, target })
 
-  // El idioma abierto es el origen; los demás, los destinos del drawer. Su propio registro
-  // (si alguien lo tradujo desde otro idioma) alimenta el aviso de la barra.
-  const current = status.locales.find(item => item.locale === locale.code)
   const others = status.locales.filter(item => item.locale !== locale.code)
   const running = isRunning(status)
   const busy = request.submitting || running
-  // Sin petición propia en esta visita, el lote es el que se ha visto en curso: también se
-  // anuncia al terminar aunque lo lanzara otra persona o desde otra pestaña.
-  const launchedHere = request.requested.length > 0
-  const messages = summaryMessages({
+  const summary = summaryMessages({
     status,
-    requested: launchedHere ? request.requested : seen,
+    requested: batch.locales,
     notice: request.notice,
-    doneKey: launchedHere ? doneKeyOf(status) : 'translator:finished',
+    doneKey: batch.own ? doneKeyOf(status) : 'translator:finished',
   })
+  // With polling stopped, "Translating…" is no longer true: it announces the status is unknown.
+  const messages = stalled && !request.notice ? [STATUS_UNAVAILABLE] : summary
 
   return (
     <div className="rr-translator">
-      {current ? (
-        <TargetNotice
-          item={current}
-          seen={seen}
-          unpublishedDraft={
-            !status.writesLive &&
-            hasUnpublishedChanges({ hasPublishedDoc, unpublishedVersionCount })
-          }
-          sourceLocale={sourceOf(current)}
-          sourceLabel={sourceLabelOf(current)}
-          t={translate}
-        />
-      ) : null}
+      {stalled ? <StalledNotice onRetry={retry} t={translate} /> : null}
+      <TargetNotice
+        item={current}
+        seen={seen}
+        unpublishedDraft={unpublishedDraftOf({
+          status,
+          item: current,
+          documentInfo: { hasPublishedDoc, unpublishedVersionCount },
+        })}
+        sourceLocale={sourceOf(current)}
+        sourceLabel={sourceLabelOf(current)}
+        linkOf={linkOf}
+        canReload={editDepth <= 1}
+        t={translate}
+      />
       <TranslateButton
         locales={others}
         busy={busy}
@@ -131,7 +200,11 @@ export const TranslateControl = (): ReactElement | null => {
         }}
         t={translate}
       />
-      <TranslateStatus messages={messages} t={translate} />
+      <TranslateStatus
+        messages={messages}
+        silenced={isModalOpen(drawerSlug)}
+        t={translate}
+      />
       <TranslateDrawer
         slug={drawerSlug}
         title={translate('translator:drawerTitle' as never, {
@@ -141,7 +214,7 @@ export const TranslateControl = (): ReactElement | null => {
         translated={[...new Set([...request.translated, ...seen])]}
         busy={busy}
         notice={
-          current && isInFlight(current) ? (
+          isInFlight(current) ? (
             <Notice tone="info" icon="progress">
               {translate('translator:translatingThisLocale' as never)}
             </Notice>
@@ -151,6 +224,7 @@ export const TranslateControl = (): ReactElement | null => {
         labelOf={labelOf}
         sourceLabelOf={sourceLabelOf}
         language={i18n.language}
+        linkOf={linkOf}
         refresh={refresh}
         send={request.send}
         t={translate}

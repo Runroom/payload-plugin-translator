@@ -5,8 +5,8 @@ import type { EntityLocales, TranslatorSettings } from './settings.js'
 
 type EntityType = 'collection' | 'global'
 
-// Un global no tiene documentos: sus registros y su job llevan este id fijo para que la
-// clave sea la misma que la de un documento de colección.
+// A global has no documents: its records and its job carry this fixed id so the key has
+// the same shape as a collection document's.
 export const GLOBAL_DOC_ID = 'global'
 
 export type EntityRef = { entityType: EntityType; collectionSlug: string; docId: string }
@@ -20,7 +20,26 @@ export type Entity = {
   writesLive: boolean
   read: (args: ReadArgs) => Promise<Doc>
   find: (args: { locale: string }) => Promise<Doc | null>
-  write: (args: { locale: string; data: Doc }) => Promise<void>
+  // Returns the document as it was saved: a `beforeChange` hook can rewrite what was sent
+  // (a `formatSlug`), and the fingerprints have to be of that.
+  write: (args: { locale: string; data: Doc }) => Promise<Doc>
+  // Date of the latest published version; `null` without drafts or if never published.
+  lastPublishedAt: () => Promise<string | null>
+}
+
+// An id the adapter cannot even parse (not a UUID in Postgres, not an ObjectID in Mongo)
+// is not a server error: the document does not exist. SQLite stores the id as text and
+// already answers "not found" by itself.
+const INVALID_ID_CODES = new Set(['22P02'])
+
+const isInvalidId = (error: unknown): boolean => {
+  const failure = error as { code?: unknown; name?: unknown; cause?: unknown } | null
+  if (!failure || typeof failure !== 'object') return false
+  return (
+    (typeof failure.code === 'string' && INVALID_ID_CODES.has(failure.code)) ||
+    failure.name === 'CastError' ||
+    (failure.cause !== undefined && isInvalidId(failure.cause))
+  )
 }
 
 type EntityConfig = { fields: Field[]; versions?: unknown }
@@ -30,10 +49,19 @@ const hasDrafts = (config: EntityConfig): boolean => {
   return typeof versions === 'object' && Boolean(versions.drafts)
 }
 
-// Sin borradores no hay dónde dejar la traducción pendiente de revisar: `draft: true`
-// publicaría igual. Se omite para que la llamada diga lo que hace, y `/status` lo expone
-// como `writesLive` para que el drawer avise antes de traducir.
+// Without drafts there is nowhere to leave the translation pending review: `draft: true`
+// would publish anyway. It is left out so the call says what it does, and `/status`
+// exposes it as `writesLive` so the drawer warns before translating.
 const draftOption = (drafts: boolean): { draft?: true } => (drafts ? { draft: true } : {})
+
+const PUBLISHED = { 'version._status': { equals: 'published' } }
+
+const LATEST_VERSION = { sort: '-updatedAt', limit: 1, depth: 0 } as const
+
+const updatedAtOf = (result: unknown): string | null => {
+  const [latest] = (result as { docs: { updatedAt?: unknown }[] }).docs
+  return typeof latest?.updatedAt === 'string' ? latest.updatedAt : null
+}
 
 const fallbackOption = (withFallback: boolean): { fallbackLocale?: false } =>
   withFallback ? {} : { fallbackLocale: false }
@@ -62,18 +90,34 @@ const collectionEntity = (
     writesLive: !drafts,
     read: async ({ locale, withFallback }) =>
       (await findByID({ locale, ...fallbackOption(withFallback) })) as Doc,
-    find: async ({ locale }) =>
-      (await findByID({ locale, disableErrors: true })) as Doc | null,
-    write: async ({ locale, data }) => {
-      await payload.update({
+    find: async ({ locale }) => {
+      try {
+        return (await findByID({ locale, disableErrors: true })) as Doc | null
+      } catch (error) {
+        if (isInvalidId(error)) return null
+        throw error
+      }
+    },
+    write: async ({ locale, data }) =>
+      (await payload.update({
         collection: collectionSlug as never,
         id: docId,
         locale: locale as never,
         ...draftOption(drafts),
+        depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      })
-    },
+      })) as unknown as Doc,
+    lastPublishedAt: async () =>
+      drafts
+        ? updatedAtOf(
+            await payload.findVersions({
+              collection: collectionSlug as never,
+              where: { and: [{ parent: { equals: docId } }, PUBLISHED] },
+              ...LATEST_VERSION,
+            }),
+          )
+        : null,
   }
 }
 
@@ -100,28 +144,37 @@ const globalEntity = (
     read: ({ locale, withFallback }) =>
       findGlobal({ locale, ...fallbackOption(withFallback) }),
     find: ({ locale }) => findGlobal({ locale }),
-    write: async ({ locale, data }) => {
-      await payload.updateGlobal({
+    write: async ({ locale, data }) =>
+      (await payload.updateGlobal({
         slug: slug as never,
         locale: locale as never,
         ...draftOption(drafts),
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      } as never)
-    },
+      } as never)) as unknown as Doc,
+    lastPublishedAt: async () =>
+      drafts
+        ? updatedAtOf(
+            await payload.findGlobalVersions({
+              slug: slug as never,
+              where: PUBLISHED,
+              ...LATEST_VERSION,
+            }),
+          )
+        : null,
   }
 }
 
-// El plugin ya exige `localization` al arrancar; aquí solo se cumple el tipo.
+// The plugin already requires `localization` at startup; this only satisfies the type.
 export const defaultLocaleOf = (payload: Payload): string => {
   const localization = payload.config.localization
   if (!localization)
-    throw new Error('translatorPlugin necesita `localization` en la config')
+    throw new Error('translatorPlugin requires `localization` in the config')
   return localization.defaultLocale
 }
 
-// `null` cuando la colección o el global no están registrados en Payload.
+// `null` when the collection or the global is not registered in Payload.
 export const entityOf = (payload: Payload, ref: EntityRef): Entity | null =>
   ref.entityType === 'global'
     ? globalEntity(payload, ref)

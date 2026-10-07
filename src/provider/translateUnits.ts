@@ -1,4 +1,5 @@
-import { MarkError, marksMatch } from '../core/lexical.js'
+import { MarkError } from '../core/lexical.js'
+import { marksMatch } from '../core/marks.js'
 import type { TranslationProvider } from './types.js'
 
 const MAX_UNITS = 40
@@ -10,6 +11,9 @@ type Args = {
   sourceLocale: string
   targetLocale: string
   instructions: string
+  // Which units carry marks (the `richText` ones); a literal `<2>` in a `text` field is not
+  // formatting and must not fail the check. All of them by default.
+  withMarks?: (id: string) => boolean
   onBatch?: () => Promise<void>
 }
 
@@ -61,25 +65,26 @@ const translateAll = async (
 }
 
 const brokenIn = (
+  { withMarks = (): boolean => true }: Args,
   units: Map<string, string>,
   result: Map<string, string>,
 ): [string, string][] =>
   [...units].filter(([id, source]) => {
     const text = result.get(id)
-    return text === undefined || !marksMatch(source, text)
+    return text === undefined || (withMarks(id) && !marksMatch(source, text))
   })
 
 export const translateUnits = async (args: Args): Promise<Map<string, string>> => {
   const result = await translateAll(args, [...args.units])
-  const broken = brokenIn(args.units, result)
+  const broken = brokenIn(args, args.units, result)
   if (broken.length === 0) return result
 
   const retried = await translateAll(args, broken)
   for (const [id, text] of retried) result.set(id, text)
-  const stillBroken = brokenIn(new Map(broken), result)
+  const stillBroken = brokenIn(args, new Map(broken), result)
   if (stillBroken.length > 0) {
     throw new MarkError(
-      `La traducción rompió el formato de: ${stillBroken.map(([id]) => id).join(', ')}`,
+      `The translation broke the formatting of: ${stillBroken.map(([id]) => id).join(', ')}`,
     )
   }
   return result

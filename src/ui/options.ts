@@ -8,8 +8,8 @@ export type TranslateOptionDefinition = {
   hintKey: string
 }
 
-// Cada valor viaja en el cuerpo del `POST /translate` con su `id` como clave: una opción
-// nueva es una entrada aquí más su lectura en `parseBody` (server/endpoints.ts).
+// Each value travels in the `POST /translate` body with its `id` as the key: a new option
+// is an entry here plus reading it in `parseBody` (server/endpoints.ts).
 export const TRANSLATE_OPTIONS: TranslateOptionDefinition[] = [
   {
     id: 'overwriteEdited',

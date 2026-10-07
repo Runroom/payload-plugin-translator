@@ -338,3 +338,22 @@ describe('findLocalizedContainers nesting', () => {
     ).toEqual(['meta'])
   })
 })
+
+describe('findLocalizedContainers with self-referencing blocks', () => {
+  it('terminates when a block references itself and still reports its containers', () => {
+    const section: Block = {
+      slug: 'section',
+      fields: [
+        { name: 'cards', type: 'array', localized: true, fields: [] },
+        { name: 'children', type: 'blocks', blocks: [], blockReferences: ['section'] },
+      ],
+    }
+
+    expect(
+      findLocalizedContainers(
+        [{ name: 'layout', type: 'blocks', blocks: [], blockReferences: ['section'] }],
+        [section],
+      ),
+    ).toEqual(['cards'])
+  })
+})

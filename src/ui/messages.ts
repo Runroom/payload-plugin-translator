@@ -4,6 +4,12 @@ export type Translate = (key: never, vars?: Record<string, unknown>) => string
 
 export type Message = { key: string; vars?: Record<string, unknown> }
 
+// Without a reason, the sentence with `{{error}}` would be left hanging on the colon.
+export const failedMessage = (error: string | null): Message =>
+  error
+    ? { key: 'translator:failed', vars: { error } }
+    : { key: 'translator:failedNoReason' }
+
 const resultMessages = ({
   status,
   requested,
@@ -16,7 +22,7 @@ const resultMessages = ({
   const items = status.locales.filter(item => requested.includes(item.locale))
   if (items.some(item => item.state === 'queued' || item.state === 'running')) return null
   const failed = items.find(item => item.state === 'failed')
-  if (failed) return [{ key: 'translator:failed', vars: { error: failed.error ?? '' } }]
+  if (failed) return [failedMessage(failed.error)]
   const kept = items.reduce((sum, item) => sum + item.kept, 0)
   return [
     { key: doneKey },

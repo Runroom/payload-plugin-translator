@@ -1,13 +1,15 @@
 'use client'
 
 import { Button } from '@payloadcms/ui'
-import type { ReactElement } from 'react'
-import { useId } from 'react'
+import type { ReactElement, ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef } from 'react'
 
 import type { LocaleStatus } from '../server/status.js'
 import type { Tone } from './Notice.js'
 import { Spinner } from './Notice.js'
+import type { LocaleLink } from './localeLink.js'
 import type { Translate } from './messages.js'
+import { failedMessage } from './messages.js'
 import { formatRelative } from './relativeTime.js'
 
 type RowState =
@@ -34,8 +36,9 @@ const STATES: Record<RowState, { key: string; tone: Tone }> = {
 const isFreshlyDone = (state: RowState): boolean =>
   state === 'draftReady' || state === 'published'
 
-// Recién traducida en esta visita es la que merece «Revisar», y la pill dice dónde quedó:
-// en borrador, pendiente de publicar, o ya publicada si la entidad no tiene borradores.
+// A locale freshly translated during this visit is the one that deserves "Review", and the
+// pill says where it ended up: as a draft, pending publication, or already published if the
+// entity has no drafts.
 const rowState = ({
   item,
   translated,
@@ -57,7 +60,7 @@ export const isUpToDate = (item: LocaleStatus): boolean =>
 type RowProps = {
   item: LocaleStatus
   label: string
-  // Nombre del idioma desde el que se tradujo este, que es contra el que se mide su estado.
+  // Name of the locale this one was translated from, which its state is measured against.
   sourceLabel: string
   state: RowState
   selected: boolean
@@ -65,6 +68,7 @@ type RowProps = {
   onRetry: () => void
   retryDescribedBy: string
   busy: boolean
+  linkOf: (locale: string) => LocaleLink | null
   language: string
   t: Translate
 }
@@ -75,7 +79,7 @@ const rowDetails = ({ item, sourceLabel, state, language, t }: RowProps): string
     : null
   return [
     state === 'failed'
-      ? t('translator:failed' as never, { error: item.error ?? '' })
+      ? t(failedMessage(item.error).key as never, failedMessage(item.error).vars)
       : null,
     state === 'stale' && item.changed > 0
       ? t('translator:changedCount' as never, {
@@ -110,40 +114,59 @@ const StatePill = ({
   </span>
 )
 
-// Las acciones esperan al final del lote: mientras quede un idioma en curso, «Revisar»
-// llevaría a un texto que el job aún puede reescribir y «Reintentar» daría 409.
-const rowActions = ({
+// The actions wait for the end of the batch: while a locale is still in progress, "Review"
+// would lead to a text the job can still rewrite and "Retry" would get a 409. They stay
+// mounted but inert (`aria-disabled`, like the submit button): unmounting them would drop
+// the focus of whoever just pressed "Retry" onto the `<dialog>`.
+const inertProps = (busy: boolean): Record<string, string | undefined> => ({
+  'aria-disabled': busy ? 'true' : undefined,
+})
+
+const ReviewAction = ({
   item,
   label,
-  state,
-  onRetry,
-  retryDescribedBy,
   busy,
+  linkOf,
   t,
-}: RowProps): ReactElement | null => {
-  if (busy) return null
-  if (isFreshlyDone(state)) {
-    return (
-      <Button
-        el="anchor"
-        url={`?locale=${item.locale}`}
-        buttonStyle="secondary"
-        size="small"
-        margin={false}
-      >
-        {t('translator:review' as never)}{' '}
-        <span className="rr-translator__sr-only">{label}</span>
-      </Button>
-    )
-  }
+}: Pick<RowProps, 'item' | 'label' | 'busy' | 'linkOf' | 't'>): ReactElement | null => {
+  const link = linkOf(item.locale)
+  if (!link) return null
+  return (
+    <Button
+      el="anchor"
+      url={link.href}
+      newTab={link.newTab}
+      buttonStyle="secondary"
+      size="small"
+      margin={false}
+      className={busy ? 'btn--disabled' : undefined}
+      extraButtonProps={inertProps(busy)}
+      // With `onClick`, Payload's `Button` cancels the link navigation.
+      onClick={busy ? (): void => {} : undefined}
+    >
+      {t('translator:review' as never)}{' '}
+      <span className="rr-translator__sr-only">
+        {label}
+        {link.newTab ? ` ${t('translator:opensInNewTab' as never)}` : null}
+      </span>
+    </Button>
+  )
+}
+
+const rowActions = (props: RowProps): ReactElement | null => {
+  const { label, state, onRetry, retryDescribedBy, busy, t } = props
+  if (isFreshlyDone(state)) return <ReviewAction {...props} />
   if (state === 'failed') {
     return (
       <Button
         buttonStyle="secondary"
         size="small"
         margin={false}
-        extraButtonProps={{ 'aria-describedby': retryDescribedBy }}
-        onClick={onRetry}
+        className={busy ? 'btn--disabled' : undefined}
+        extraButtonProps={{ ...inertProps(busy), 'aria-describedby': retryDescribedBy }}
+        onClick={() => {
+          if (!busy) onRetry()
+        }}
       >
         {t('translator:retry' as never)}{' '}
         <span className="rr-translator__sr-only">{label}</span>
@@ -153,16 +176,48 @@ const rowActions = ({
   return null
 }
 
+// When the retried locale becomes "Queued", its button disappears with the focus inside;
+// the focus is returned to the checkbox of the same row. It is checked on unmount, while the
+// button is still in the document, and moved afterwards only if nothing else picked it up.
+const RowActions = ({
+  fallbackFocus,
+  children,
+}: {
+  fallbackFocus: { current: HTMLElement | null }
+  children: ReactNode
+}): ReactElement => {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const container = ref.current
+    const target = fallbackFocus.current
+    return (): void => {
+      if (!container?.contains(document.activeElement)) return
+      queueMicrotask(() => {
+        const lost =
+          document.activeElement === null || document.activeElement === document.body
+        if (target?.isConnected && lost) target.focus()
+      })
+    }
+  }, [fallbackFocus])
+  return (
+    <div ref={ref} className="rr-translator__row-actions">
+      {children}
+    </div>
+  )
+}
+
 const LocaleRow = (props: RowProps): ReactElement => {
   const { label, state, selected, onToggle, t } = props
   const inputId = useId()
   const stateId = `${inputId}-state`
   const detailsId = `${inputId}-details`
+  const checkboxRef = useRef<HTMLInputElement>(null)
   const details = rowDetails(props)
   const actions = rowActions(props)
   return (
     <li className="rr-translator__row" data-state={state}>
       <input
+        ref={checkboxRef}
         id={inputId}
         type="checkbox"
         className="rr-translator__checkbox"
@@ -187,7 +242,11 @@ const LocaleRow = (props: RowProps): ReactElement => {
           </p>
         ) : null}
       </div>
-      {actions ? <div className="rr-translator__row-actions">{actions}</div> : null}
+      {actions ? (
+        <RowActions key={state} fallbackFocus={checkboxRef}>
+          {actions}
+        </RowActions>
+      ) : null}
     </li>
   )
 }
@@ -205,6 +264,7 @@ export const LocaleStates = ({
   onRetry,
   retryDescribedBy,
   writesLive,
+  linkOf,
   t,
 }: {
   locales: LocaleStatus[]
@@ -219,6 +279,7 @@ export const LocaleStates = ({
   onRetry: (code: string) => void
   retryDescribedBy: string
   writesLive: boolean
+  linkOf: (locale: string) => LocaleLink | null
   t: Translate
 }): ReactElement => {
   const errorId = useId()
@@ -243,12 +304,13 @@ export const LocaleStates = ({
             onRetry={() => onRetry(item.locale)}
             retryDescribedBy={retryDescribedBy}
             busy={busy}
+            linkOf={linkOf}
             language={language}
             t={t}
           />
         ))}
       </ul>
-      {/* Montado siempre y vacío: así el lector de pantalla anuncia el error al aparecer. */}
+      {/* Always mounted and empty: that way the screen reader announces the error when it appears. */}
       <p id={errorId} role="alert" className="rr-translator__field-error">
         {error}
       </p>

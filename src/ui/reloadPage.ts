@@ -1,5 +1,5 @@
-// Recarga completa: es la vía probada para enseñar una versión escrita por debajo del
-// formulario abierto. `router.refresh()` no se ha probado con el formulario de Payload.
+// Full reload: it is the proven way to show a version written underneath the open form.
+// `router.refresh()` has not been tried with Payload's form.
 export const reloadPage = (): void => {
   window.location.reload()
 }

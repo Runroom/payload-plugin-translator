@@ -184,10 +184,21 @@ export const collectTranslatables = ({
 
 const CONTAINER_TYPES = new Set(['array', 'blocks', 'group'])
 
-const childFieldsOf = (field: Field, configBlocks: Block[]): Field[] => {
+// A block can reference itself through `blockReferences`; each one is walked only once or
+// the search never ends.
+const childFieldsOf = (
+  field: Field,
+  configBlocks: Block[],
+  visited: Set<Block>,
+): Field[] => {
   if (field.type === 'tabs') return field.tabs.flatMap(tab => tab.fields)
-  if (field.type === 'blocks')
-    return blocksOf(field, configBlocks).flatMap(block => block.fields)
+  if (field.type === 'blocks') {
+    return blocksOf(field, configBlocks).flatMap(block => {
+      if (visited.has(block)) return []
+      visited.add(block)
+      return block.fields
+    })
+  }
   if ('fields' in field && Array.isArray(field.fields)) return field.fields
   return []
 }
@@ -204,13 +215,14 @@ const ownContainerName = (field: Field): string[] => {
     : []
 }
 
-// Un contenedor localizado guarda filas distintas por idioma: no hay una fila del origen
-// que corresponda a una del destino, así que la huella por `id` no aplica.
+// A localized container stores different rows per locale: no source row corresponds to a
+// target row, so fingerprinting by row `id` does not apply.
 export const findLocalizedContainers = (
   fields: Field[],
   blocks: Block[] = [],
+  visited: Set<Block> = new Set(),
 ): string[] =>
   fields.flatMap(field => [
     ...ownContainerName(field),
-    ...findLocalizedContainers(childFieldsOf(field, blocks), blocks),
+    ...findLocalizedContainers(childFieldsOf(field, blocks, visited), blocks, visited),
   ])

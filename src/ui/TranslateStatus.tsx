@@ -4,17 +4,26 @@ import type { ReactElement } from 'react'
 
 import type { Message, Translate } from './messages.js'
 
-// Vive en la barra y no en el drawer para anunciar el progreso y el resultado aunque el
-// drawer esté cerrado. Siempre montada y solo cambian sus hijos: los lectores de pantalla
-// no anuncian una región viva que aparece ya con contenido.
+// It lives in the bar and not in the drawer to announce the progress and the result even
+// while the drawer is closed. Always mounted and only its children change: screen readers do
+// not announce a live region that appears already filled.
+//
+// With the drawer open, the drawer's summary announces (`silenced`): this one goes quiet
+// with `aria-live="off"` but keeps its content, so it is not announced again on close.
 export const TranslateStatus = ({
   messages,
+  silenced,
   t,
 }: {
   messages: Message[]
+  silenced: boolean
   t: Translate
 }): ReactElement => (
-  <div role="status" className="rr-translator__sr-only">
+  <div
+    role="status"
+    aria-live={silenced ? 'off' : 'polite'}
+    className="rr-translator__sr-only"
+  >
     {messages.map(message => (
       <p key={message.key}>{t(message.key as never, message.vars)}</p>
     ))}

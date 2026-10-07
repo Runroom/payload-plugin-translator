@@ -137,7 +137,7 @@ describe('buildUpdateData', () => {
           },
         ],
       }),
-    ).toThrow(/days.*no es un objeto/)
+    ).toThrow(/days is not an object/)
   })
 
   it('throws when a segment with rowId points to a non-array', () => {
@@ -151,6 +151,6 @@ describe('buildUpdateData', () => {
           },
         ],
       }),
-    ).toThrow(/title.*no es un array/)
+    ).toThrow(/title is not an array/)
   })
 })

@@ -62,7 +62,7 @@ const fakePayload = ({
       if (args.collection === RECORDS_SLUG) return records(args)
       await update(args)
       state[args.locale] = { ...state[args.locale], ...args.data }
-      return {}
+      return structuredClone(state[args.locale])
     }),
   } as unknown as Payload
   return { payload, update, records }
@@ -172,7 +172,7 @@ describe('runTranslation', () => {
     const failing: TranslatorSettings = {
       ...settings,
       provider: {
-        translate: vi.fn().mockRejectedValue(new ProviderError('clave inválida', false)),
+        translate: vi.fn().mockRejectedValue(new ProviderError('invalid key', false)),
       },
     }
 
@@ -181,7 +181,7 @@ describe('runTranslation', () => {
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(records.mock.calls.at(-1)![0].data).toMatchObject({
       status: 'failed',
-      error: 'clave inválida',
+      error: 'invalid key',
     })
   })
 
@@ -195,14 +195,14 @@ describe('runTranslation', () => {
 
   it('keeps the original error and cancellation when saving the failed record also fails', async () => {
     const { payload, records } = fakePayload(pending)
-    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db caída'))
+    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db down'))
 
     await expect(
       runTranslation({
         isLastAttempt: true,
         payload,
         input,
-        settings: failedProvider(new ProviderError('clave inválida', false)),
+        settings: failedProvider(new ProviderError('invalid key', false)),
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(payload.logger.error).toHaveBeenCalled()
@@ -211,7 +211,7 @@ describe('runTranslation', () => {
   it('rethrows the original error when saving the failed record also fails', async () => {
     const { payload, records } = fakePayload(pending)
     const original = new ProviderError('cuota', true)
-    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db caída'))
+    records.mockResolvedValueOnce({}).mockRejectedValue(new Error('db down'))
 
     await expect(
       runTranslation({
@@ -399,7 +399,7 @@ const failingFor = (locale: string, error: Error): TranslatorSettings => {
   }
 }
 
-// Guarda documentos y registros entre ejecuciones para poder simular el reintento del job.
+// Keeps documents and records between runs so the job retry can be simulated.
 const statefulPayload = (
   docs: Docs,
 ): { payload: Payload; update: ReturnType<typeof vi.fn> } => {
@@ -410,7 +410,7 @@ const statefulPayload = (
     async (args: { collection: string; id: string; locale: string; data: object }) => {
       if (args.collection !== RECORDS_SLUG) {
         docs[args.locale] = { ...docs[args.locale], ...args.data }
-        return
+        return { ...docs[args.locale] }
       }
       const record = saved.find(item => item.id === args.id)!
       Object.assign(record, args.data)
@@ -511,7 +511,7 @@ describe('runTranslation with several target locales', () => {
     const failing: TranslatorSettings = {
       ...settings,
       provider: {
-        translate: vi.fn().mockRejectedValue(new ProviderError('clave inválida', false)),
+        translate: vi.fn().mockRejectedValue(new ProviderError('invalid key', false)),
       },
     }
 
@@ -553,7 +553,7 @@ describe('runTranslation with several target locales', () => {
 
     await expect(
       runTranslation({
-        isLastAttempt: true,
+        isLastAttempt: false,
         payload,
         input: allTargets,
         settings: firstTry,
@@ -623,7 +623,7 @@ describe('runTranslation retries and safety checks', () => {
         isLastAttempt: false,
         payload,
         input: allTargets,
-        settings: failingFor('ca', new ProviderError('clave inválida', false)),
+        settings: failingFor('ca', new ProviderError('invalid key', false)),
       }),
     ).rejects.toThrow()
     expect(lastRecord(records, 'ca')).toMatchObject({ status: 'failed' })
@@ -663,7 +663,7 @@ describe('runTranslation retries and safety checks', () => {
     expect((error as Error).message).toContain('ca')
     expect(lastRecord(records, 'ca')).toMatchObject({
       status: 'queued',
-      error: expect.stringContaining('se reintentará'),
+      error: expect.stringContaining('it will be retried'),
     })
   })
 
@@ -700,7 +700,7 @@ describe('runTranslation retries and safety checks', () => {
 
   it('keeps going with the other locales when saving the running record fails', async () => {
     const { payload, records } = fakePayload({ docs: { ...bothLocales } })
-    const dbError = new Error('db caída')
+    const dbError = new Error('db down')
     records.mockRejectedValueOnce(dbError)
 
     await expect(
@@ -734,7 +734,7 @@ describe('runTranslation retries and safety checks', () => {
 
     const saved = lastRecord(records, 'ca')
     expect(saved.status).toBe('failed')
-    expect(saved.error).not.toContain('se reintentará')
+    expect(saved.error).not.toContain('it will be retried')
   })
 
   it('keeps the translation going when the heartbeat cannot be saved', async () => {
@@ -910,7 +910,7 @@ describe('runTranslation from a locale other than the default', () => {
         isLastAttempt: true,
         payload,
         input: { ...fromCatalan, targetLocales: ['en'] },
-        settings: failingFor('en', new ProviderError('clave inválida', false)),
+        settings: failingFor('en', new ProviderError('invalid key', false)),
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
 
@@ -1013,7 +1013,7 @@ const globalPayload = ({
   const records = vi.fn().mockResolvedValue({})
   const updateGlobal = vi.fn(async (args: { locale: string; data: object }) => {
     state[args.locale] = { ...state[args.locale], ...args.data }
-    return {}
+    return structuredClone(state[args.locale])
   })
   const findGlobal = vi.fn<FindGlobal>(async ({ locale }) =>
     structuredClone(state[locale]),
@@ -1144,5 +1144,121 @@ describe('runTranslation for a global', () => {
       }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(updateGlobal).not.toHaveBeenCalled()
+  })
+})
+
+describe('runTranslation and hooks that rewrite what it writes', () => {
+  it('fingerprints what Payload saved, so a normalising hook does not look like a concurrent edit', async () => {
+    const docs: Docs = {
+      es: { id: 'e1', title: 'Curso Intensivo' },
+      ca: { id: 'e1', title: null },
+    }
+    const { payload, update } = statefulPayload(docs)
+    type Write = (args: {
+      collection: string
+      locale: string
+      data: object
+    }) => Promise<unknown>
+    const writes = update as Mock<Write>
+    const write = writes.getMockImplementation()!
+    // A `beforeChange` that normalizes the value, as `formatSlug` would.
+    writes.mockImplementation(async args => {
+      if (args.collection === RECORDS_SLUG) return write(args)
+      const data = args.data as { title: string }
+      return write({ ...args, data: { ...data, title: data.title.toLowerCase() } })
+    })
+
+    await runTranslation({ isLastAttempt: false, payload, input, settings })
+
+    expect(docs.ca).toMatchObject({ title: '[ca] curso intensivo' })
+    const { docs: saved } = await payload.find({
+      collection: RECORDS_SLUG as never,
+      where: { and: [{ targetLocale: { equals: 'ca' } }] } as never,
+    })
+    const record = saved[0] as unknown as {
+      status: string
+      fields: Record<string, { output: string }>
+    }
+    expect(record.status).toBe('done')
+    expect(record.fields.title?.output).toBe(fingerprint(['[ca] curso intensivo']))
+
+    // On the next pass the normalized text is still ours: nothing to translate.
+    const translate = vi.fn(fakeProvider().translate)
+    await runTranslation({
+      isLastAttempt: false,
+      payload,
+      input,
+      settings: { ...settings, provider: { translate } },
+    })
+    expect(translate).not.toHaveBeenCalled()
+    expect((saved[0] as unknown as { kept: string[] }).kept).toEqual([])
+  })
+})
+
+describe('runTranslation when nothing needs translating', () => {
+  it('keeps the previous translatedAt so the site is not told about a write that did not happen', async () => {
+    const hash = fingerprint(['Curso'])!
+    const output = fingerprint(['[ca] Curso'])!
+    const { payload, records } = fakePayload({
+      docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: '[ca] Curso' } },
+      record: {
+        status: 'done',
+        fields: { title: { source: hash, output } },
+        translatedAt: '2026-10-01T10:00:00.000Z',
+      },
+    })
+
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+
+    const saved = records.mock.calls.at(-1)![0].data as Record<string, unknown>
+    expect(saved.status).toBe('done')
+    expect(saved).not.toHaveProperty('translatedAt')
+  })
+})
+
+describe('runTranslation retried after an unrecoverable failure in one locale', () => {
+  it('does not translate again the locale that already failed for good in this job', async () => {
+    const { payload } = statefulPayload({
+      es: { ...bothLocales.es },
+      ca: { ...bothLocales.ca },
+      en: { ...bothLocales.en },
+    })
+    const fake = fakeProvider()
+    const translate = vi.fn(async (request: Parameters<typeof fake.translate>[0]) => {
+      if (request.targetLocale === 'ca') throw new ProviderError('negado', false)
+      if (request.targetLocale === 'en') throw new ProviderError('timeout', true)
+      return fake.translate(request)
+    })
+    const provider = { translate }
+
+    await expect(
+      runTranslation({
+        isLastAttempt: false,
+        payload,
+        input: allTargets,
+        settings: { ...settings, provider },
+      }),
+    ).rejects.toMatchObject({ message: 'timeout' })
+
+    translate.mockImplementation(fake.translate)
+    await expect(
+      runTranslation({
+        isLastAttempt: true,
+        payload,
+        input: allTargets,
+        settings: { ...settings, provider },
+      }),
+    ).rejects.toBeInstanceOf(JobCancelledError)
+
+    expect(translate.mock.calls.map(([request]) => request.targetLocale)).toEqual([
+      'ca',
+      'en',
+      'en',
+    ])
+    const { docs: saved } = await payload.find({
+      collection: RECORDS_SLUG as never,
+      where: { and: [{ targetLocale: { equals: 'ca' } }] } as never,
+    })
+    expect(saved[0]).toMatchObject({ status: 'failed', error: 'negado' })
   })
 })

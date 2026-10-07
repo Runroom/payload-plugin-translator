@@ -1,8 +1,8 @@
 import type { TranslationProvider } from './types.js'
 
-// El prefijo va dentro de la primera marca hoja de texto con contenido: fuera de una
-// marca, o dentro de un contenedor, el parser de Lexical lo rechazaría. Sin hoja, el valor
-// queda intacto.
+// The prefix goes inside the first text leaf mark with content: outside a mark, or inside a
+// container, the Lexical parser would reject it. Without a leaf, the value is left
+// untouched.
 const prefixed = (value: string, prefix: string): string => {
   if (!/<\/?\d+\/?>/.test(value)) return `${prefix}${value}`
   return value.replace(/<(\d+)>(?=[^<]*[^<\s])/, `$&${prefix}`)

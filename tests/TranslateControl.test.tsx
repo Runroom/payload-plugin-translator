@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import type { ReactElement, ReactNode } from 'react'
@@ -23,6 +24,7 @@ const documentInfo: {
   unpublishedVersionCount: 0,
 }
 const i18n = { language: 'es' }
+const editDepth = { value: 1 }
 const defaultLocales = [
   { code: 'es', label: 'Español' as string | Record<string, string> },
   { code: 'ca', label: 'Català' as string | Record<string, string> },
@@ -99,6 +101,7 @@ vi.mock('@payloadcms/ui', async () => {
     disabled,
     el,
     extraButtonProps,
+    newTab,
     onClick,
     url,
   }: {
@@ -107,11 +110,27 @@ vi.mock('@payloadcms/ui', async () => {
     disabled?: boolean
     el?: string
     extraButtonProps?: Record<string, unknown>
+    newTab?: boolean
     onClick?: () => void
     url?: string
   }): ReactElement =>
     el === 'anchor' ? (
-      <a className={className} href={url}>
+      // Like the real one: with `onClick` it cancels the navigation.
+      <a
+        className={className}
+        href={url}
+        target={newTab ? '_blank' : undefined}
+        rel={newTab ? 'noopener noreferrer' : undefined}
+        onClick={
+          onClick
+            ? (event): void => {
+                event.preventDefault()
+                onClick()
+              }
+            : undefined
+        }
+        {...extraButtonProps}
+      >
         {children}
       </a>
     ) : (
@@ -131,13 +150,14 @@ vi.mock('@payloadcms/ui', async () => {
     Drawer,
     useModal,
     useDrawerSlug: (slug: string): string => `drawer_1_${slug}`,
+    useEditDepth: (): number => editDepth.value,
     XIcon: (): ReactElement => <svg />,
     useDocumentInfo: (): object => documentInfo,
     useLocale: (): object => locale,
     useConfig: (): object => ({
       config: {
         serverURL: '',
-        routes: { api: '/api' },
+        routes: { api: '/api', admin: '/admin' },
         localization,
       },
     }),
@@ -173,14 +193,15 @@ const row = (overrides: Partial<LocaleFixture> & { locale: string }): LocaleFixt
   ...overrides,
 })
 
-// Como el servidor: un elemento por idioma de la entidad, el abierto incluido.
+// Like the server: one item per locale of the entity, the open one included (if the
+// fixture does not bring it, it is added untranslated).
 const status = (locales?: LocaleFixture[]): Record<string, unknown> => ({
   enabled: true,
-  locales: locales ?? [
-    row({ locale: 'es' }),
-    row({ locale: 'ca' }),
-    row({ locale: 'en' }),
-  ],
+  locales: !locales
+    ? [row({ locale: 'es' }), row({ locale: 'ca' }), row({ locale: 'en' })]
+    : locales.some(item => item.locale === locale.code)
+      ? locales
+      : [row({ locale: locale.code }), ...locales],
 })
 
 const staleEn = row({
@@ -228,7 +249,11 @@ const submit = async (): Promise<void> => {
   )
 }
 
-const liveRegion = (): HTMLElement => screen.getByRole('status')
+// The one that announces: the drawer's while it is open, the bar's otherwise.
+const liveRegion = (): HTMLElement =>
+  screen.queryByRole('dialog')
+    ? within(drawer()).getByRole('status')
+    : screen.getByRole('status')
 
 const postBody = (call: unknown[] | undefined): Record<string, unknown> =>
   JSON.parse((call?.[1] as { body: string }).body) as Record<string, unknown>
@@ -236,6 +261,7 @@ const postBody = (call: unknown[] | undefined): Record<string, unknown> =>
 beforeEach(() => {
   locale.code = 'es'
   i18n.language = 'es'
+  editDepth.value = 1
   localization.locales = defaultLocales
   documentInfo.id = 'e1'
   documentInfo.collectionSlug = 'events'
@@ -588,7 +614,8 @@ describe('TranslateControl: in a locale translated from another one', () => {
 
     expect(screen.queryByText('translator:translatingThisLocale')).toBeNull()
     expect(screen.getByText('translator:readyThisLocale')).toBeTruthy()
-    expect(screen.getByText('translator:readyShort')).toBeTruthy()
+    const ready = screen.getByText('translator:readyShort')
+    expect(ready.closest('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
     expect(liveRegion().textContent).toContain('translator:finished')
     await userEvent.click(screen.getByRole('button', { name: 'translator:reload' }))
     expect(reloadPage).toHaveBeenCalledTimes(1)
@@ -1086,7 +1113,12 @@ describe('TranslateControl: translating', () => {
   it.each([
     ['busy', respond({ error: 'busy', busy: ['ca'] }, 409)],
     ['notConfigured', respond({ error: 'not-configured' }, 503)],
+    ['forbidden', respond({ error: 'forbidden' }, 403)],
+    ['notFound', respond({ error: 'not-found' }, 404)],
+    ['badRequest', respond({ error: 'bad-request' }, 400)],
+    ['recordsFailed', respond({ error: 'records-failed', queued: ['ca', 'en'] }, 500)],
     ['requestFailed', respond({ error: 'boom' }, 500)],
+    ['requestFailed', respond({ error: 'down' }, 502)],
   ])('shows the %s message when the request is refused', async (key, response) => {
     vi.stubGlobal(
       'fetch',
@@ -1336,7 +1368,7 @@ describe('TranslateControl: translating', () => {
     expect(liveRegion().textContent).toContain('translator:done')
   })
 
-  it('offers «Review» only once no requested language is in progress', async () => {
+  it('keeps "Review" inert until no requested language is in progress', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     const fetchMock = vi
       .fn()
@@ -1381,38 +1413,45 @@ describe('TranslateControl: translating', () => {
       .getByRole('checkbox', { name: 'Català' })
       .closest('li')!
     expect(catalanRow.textContent).toContain('translator:stateDraftReady')
-    expect(screen.queryByRole('link', { name: /translator:review/ })).toBeNull()
+    const review = within(catalanRow).getByRole('link', { name: /translator:review/ })
+    expect(review.getAttribute('aria-disabled')).toBe('true')
+    expect(review.className).toContain('btn--disabled')
+    const navigation = new MouseEvent('click', { bubbles: true, cancelable: true })
+    review.dispatchEvent(navigation)
+    expect(navigation.defaultPrevented).toBe(true)
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000)
     })
-    expect(
-      within(drawer()).getAllByRole('link', { name: /translator:review/ }),
-    ).toHaveLength(2)
+    const reviews = within(drawer()).getAllByRole('link', { name: /translator:review/ })
+    expect(reviews).toHaveLength(2)
+    for (const link of reviews) expect(link.getAttribute('aria-disabled')).toBeNull()
   })
 
-  it('offers «Retry» only once nothing is in progress', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          respond(
-            status([
-              row({ locale: 'ca', state: 'failed', error: 'boom' }),
-              row({ locale: 'en', state: 'running' }),
-            ]),
-          ),
+  it('keeps "Retry" inert while something is in progress', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        respond(
+          status([
+            row({ locale: 'ca', state: 'failed', error: 'boom' }),
+            row({ locale: 'en', state: 'running' }),
+          ]),
         ),
-    )
+      )
+    vi.stubGlobal('fetch', fetchMock)
     render(<TranslateControl />)
 
     await openDrawer('translator:inProgress')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    const retry = within(drawer()).getByRole('button', {
+      name: 'translator:retry Català',
+    })
+    expect(retry.getAttribute('aria-disabled')).toBe('true')
+    await userEvent.click(retry)
 
-    expect(within(drawer()).getByRole('checkbox', { name: 'Català' })).toBeTruthy()
-    expect(
-      within(drawer()).queryByRole('button', { name: /translator:retry/ }),
-    ).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(document.activeElement).toBe(retry)
   })
 
   it('announces a failure with the error of the failed language', async () => {
@@ -1658,7 +1697,7 @@ describe('TranslateControl: drafts in a target locale', () => {
     expect(screen.queryByText('translator:unpublishedShort')).toBeNull()
   })
 
-  // Publicar no recarga la página: Payload pone el contador a 0 en `useDocumentInfo`.
+  // Publishing does not reload the page: Payload sets the counter to 0 in `useDocumentInfo`.
   it('drops the notice when the draft gets published without reloading', async () => {
     documentInfo.unpublishedVersionCount = 1
     locale.code = 'ca'
@@ -1730,5 +1769,460 @@ describe('TranslateControl: drafts in a target locale', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled())
     await settle()
     expect(screen.queryByText('translator:unpublishedShort')).toBeNull()
+  })
+})
+
+const barRegion = (): HTMLElement =>
+  screen.getAllByRole('status').find(region => !region.closest('dialog'))!
+
+describe('TranslateControl: open locale outside the entity', () => {
+  it('renders nothing in a locale the entity is not translated into', async () => {
+    locale.code = 'en'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        respond({
+          enabled: true,
+          writesLive: false,
+          lastPublishedAt: null,
+          locales: [row({ locale: 'es' }), row({ locale: 'ca', state: 'failed' })],
+        }),
+      ),
+    )
+
+    const { container } = render(<TranslateControl />)
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    await settle()
+    expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('TranslateControl: focus after "Retry"', () => {
+  it('keeps the focus on "Retry" while it is sent and hands it to the row once queued', async () => {
+    const failed = status([
+      row({ locale: 'ca', state: 'failed', error: 'boom' }),
+      row({ locale: 'en' }),
+    ])
+    const post = deferred()
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(respond(failed))
+        .mockResolvedValueOnce(respond(failed))
+        .mockReturnValueOnce(post.promise)
+        .mockResolvedValue(
+          respond(
+            status([row({ locale: 'ca', state: 'queued' }), row({ locale: 'en' })]),
+          ),
+        ),
+    )
+    render(<TranslateControl />)
+    await openDrawer(/translator:translate/)
+    const retry = within(drawer()).getByRole('button', {
+      name: 'translator:retry Català',
+    })
+
+    await userEvent.click(retry)
+
+    expect(document.activeElement).toBe(retry)
+    expect(retry.getAttribute('aria-disabled')).toBe('true')
+
+    await act(async () => {
+      post.resolve(respond({ queued: ['ca'] }, 202))
+    })
+    await waitFor(() =>
+      expect(
+        within(drawer()).queryByRole('button', { name: /translator:retry/ }),
+      ).toBeNull(),
+    )
+    expect(document.activeElement).toBe(
+      within(drawer()).getByRole('checkbox', { name: 'Català' }),
+    )
+  })
+})
+
+// Like `fetch`: it stays pending until aborted, and then rejects.
+const abortable = (signal: AbortSignal | undefined): Promise<Response> =>
+  new Promise((_, reject) => {
+    signal?.addEventListener('abort', () => {
+      reject(new DOMException('aborted', 'AbortError'))
+    })
+  })
+
+describe('TranslateControl: responses out of order', () => {
+  it('does not let a slow refresh overwrite a newer poll', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const slow = deferred()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+      .mockReturnValueOnce(slow.promise)
+      .mockResolvedValue(
+        respond(status([row({ locale: 'ca', state: 'done', translatedAt: 'x' })])),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TranslateControl />)
+    await openDrawer('translator:inProgress')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    await advance()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await waitFor(() => expect(liveRegion().textContent).toContain('translator:finished'))
+
+    await act(async () => {
+      slow.resolve(respond(status([row({ locale: 'ca', state: 'running' })])))
+    })
+
+    expect(liveRegion().textContent).toContain('translator:finished')
+    expect(screen.getByRole('button', { name: 'translator:translate' })).toBeTruthy()
+    await advance()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps the control while the status of a new document loads', async () => {
+    const pending = deferred()
+    const fetchMock = vi.fn((url: string, init?: { signal?: AbortSignal }) => {
+      if (url.includes('id=e1')) return Promise.resolve(respond(status()))
+      if (url.includes('id=e3')) return pending.promise
+      return abortable(init?.signal)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { rerender } = render(<TranslateControl />)
+    await screen.findByRole('button', { name: 'translator:translate' })
+
+    documentInfo.id = 'e2'
+    rerender(<TranslateControl />)
+    documentInfo.id = 'e3'
+    rerender(<TranslateControl />)
+    await settle()
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(screen.getByRole('button', { name: 'translator:translate' })).toBeTruthy()
+
+    await act(async () => {
+      pending.resolve(respond(status([staleEn])))
+    })
+    expect(screen.getByRole('button', { name: /translator:attentionStale/ })).toBeTruthy()
+  })
+})
+
+describe('TranslateControl: polling that cannot go on', () => {
+  it.each([403, 404])('hides the control and stops polling after a %i', async code => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+      .mockResolvedValueOnce(respond({ error: 'no' }, code))
+      .mockResolvedValue(respond(status([row({ locale: 'ca', state: 'running' })])))
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<TranslateControl />)
+    await screen.findByRole('button', { name: 'translator:inProgress' })
+
+    await advance()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(container.innerHTML).toBe('')
+
+    await advance(20_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops after five failed polls in a row and offers to check again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(respond({ error: 'down' }, 502))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue(
+        respond(status([row({ locale: 'ca', state: 'done', translatedAt: 'x' })])),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TranslateControl />)
+    await screen.findByRole('button', { name: 'translator:inProgress' })
+
+    for (let poll = 0; poll < 5; poll += 1) await advance()
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(screen.getByText('translator:statusUnavailableShort')).toBeTruthy()
+    expect(liveRegion().textContent).toContain('translator:statusUnavailable')
+
+    await advance(20_000)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+
+    await userEvent.click(screen.getByRole('button', { name: 'translator:retry' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7))
+    await waitFor(() =>
+      expect(screen.queryByText('translator:statusUnavailableShort')).toBeNull(),
+    )
+    expect(screen.getByRole('button', { name: 'translator:translate' })).toBeTruthy()
+  })
+
+  it('counts only failures in a row', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const running = respond(status([row({ locale: 'ca', state: 'running' })]))
+    const fetchMock = vi.fn().mockResolvedValueOnce(running)
+    for (let round = 0; round < 3; round += 1) {
+      fetchMock
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TranslateControl />)
+    await screen.findByRole('button', { name: 'translator:inProgress' })
+
+    for (let poll = 0; poll < 12; poll += 1) await advance()
+
+    expect(fetchMock).toHaveBeenCalledTimes(13)
+    expect(screen.queryByText('translator:statusUnavailableShort')).toBeNull()
+  })
+})
+
+describe('TranslateControl: in a nested document drawer', () => {
+  it('links "Review" to the document itself in a new tab', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    editDepth.value = 2
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(respond(status()))
+        .mockResolvedValueOnce(respond(status()))
+        .mockResolvedValueOnce(respond({ queued: ['ca'] }, 202))
+        .mockResolvedValue(respond(status([doneCa, row({ locale: 'en' })]))),
+    )
+    render(<TranslateControl />)
+    await openDrawer()
+    await userEvent.click(within(drawer()).getByRole('checkbox', { name: 'English' }))
+    await submit()
+
+    const review = await within(drawer()).findByRole('link', {
+      name: 'translator:review Català translator:opensInNewTab',
+    })
+    expect(review.getAttribute('href')).toBe('/admin/collections/events/e1?locale=ca')
+    expect(review.getAttribute('target')).toBe('_blank')
+    expect(review.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('links the stale notice of a global to the global in a new tab', async () => {
+    editDepth.value = 2
+    locale.code = 'en'
+    documentInfo.id = undefined
+    documentInfo.collectionSlug = undefined
+    documentInfo.globalSlug = 'footer'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(status([staleEn]))))
+    render(<TranslateControl />)
+
+    const link = await screen.findByRole('link', { name: /translator:goToSource/ })
+    expect(link.getAttribute('href')).toBe('/admin/globals/footer?locale=es')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.textContent).toContain('translator:opensInNewTab')
+  })
+
+  it('keeps the links on the page itself outside a nested drawer', async () => {
+    locale.code = 'en'
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(status([staleEn]))))
+    render(<TranslateControl />)
+
+    const link = await screen.findByRole('link', { name: /translator:goToSource/ })
+    expect(link.getAttribute('href')).toBe('?locale=es')
+    expect(link.getAttribute('target')).toBeNull()
+  })
+
+  it('asks to reopen the document instead of reloading the parent page', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    editDepth.value = 2
+    locale.code = 'ca'
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(respond(status([row({ locale: 'ca', state: 'running' })])))
+        .mockResolvedValue(respond(status([doneCa]))),
+    )
+    render(<TranslateControl />)
+    await screen.findByText('translator:translatingShort')
+
+    await advance()
+
+    expect(screen.getByText('translator:readyNestedShort')).toBeTruthy()
+    expect(screen.getByText('translator:readyNestedThisLocale')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'translator:reload' })).toBeNull()
+  })
+})
+
+describe('TranslateControl: unpublished drafts per locale', () => {
+  const renderCa = (lastPublishedAt: string | null): void => {
+    documentInfo.unpublishedVersionCount = 1
+    locale.code = 'ca'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        respond({
+          ...status([
+            row({
+              locale: 'ca',
+              state: 'done',
+              sourceLocale: 'es',
+              translatedAt: '2026-10-05T10:00:00.000Z',
+            }),
+          ]),
+          writesLive: false,
+          lastPublishedAt,
+        }),
+      ),
+    )
+    render(<TranslateControl />)
+  }
+
+  it('says nothing in a locale whose translation was published afterwards', async () => {
+    renderCa('2026-10-05T11:00:00.000Z')
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled())
+    await settle()
+    expect(screen.getByRole('button', { name: 'translator:translate' })).toBeTruthy()
+    expect(screen.queryByText('translator:unpublishedShort')).toBeNull()
+  })
+
+  it('flags a translation newer than the last publication', async () => {
+    renderCa('2026-10-05T09:00:00.000Z')
+
+    expect(await screen.findByText('translator:unpublishedShort')).toBeTruthy()
+  })
+})
+
+describe('TranslateControl: a failure of the open locale from an earlier visit', () => {
+  it.each([
+    ['quota', 'translator:failed{"error":"quota"}'],
+    [null, 'translator:failedNoReason'],
+  ])('reports it on arrival (error %s)', async (error, text) => {
+    locale.code = 'ca'
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          respond(
+            status([
+              row({ locale: 'ca', state: 'failed', error }),
+              row({ locale: 'en' }),
+            ]),
+          ),
+        ),
+    )
+    render(<TranslateControl />)
+
+    const short = await screen.findByText('translator:failedShort')
+    expect(short.closest('[data-tone]')?.getAttribute('data-tone')).toBe('error')
+    expect(screen.getByText(text)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'translator:translate' })).toBeTruthy()
+  })
+
+  it('does not leave a dangling colon in a row that failed without a reason', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(respond(status([row({ locale: 'ca', state: 'failed' })]))),
+    )
+    render(<TranslateControl />)
+
+    await openDrawer(/translator:translate/)
+
+    const catalanRow = within(drawer())
+      .getByRole('checkbox', { name: 'Català' })
+      .closest('li')!
+    expect(catalanRow.textContent).toContain('translator:failedNoReason')
+    expect(catalanRow.textContent).not.toContain('translator:failed{')
+  })
+})
+
+describe('TranslateControl: the live region inside the drawer', () => {
+  it('announces from the drawer while it is open and from the bar once closed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond(status())))
+    render(<TranslateControl />)
+    await screen.findByRole('button', { name: 'translator:translate' })
+    expect(barRegion().getAttribute('aria-live')).toBe('polite')
+
+    await openDrawer()
+
+    expect(within(drawer()).getByRole('status')).toBeTruthy()
+    expect(barRegion().getAttribute('aria-live')).toBe('off')
+
+    await userEvent.click(within(drawer()).getByRole('button', { name: 'general:close' }))
+    expect(barRegion().getAttribute('aria-live')).toBe('polite')
+  })
+})
+
+describe('TranslateControl: which batch the live region sums up', () => {
+  it('does not announce the previous batch again after a refused request', async () => {
+    const after = status([doneCa, row({ locale: 'en' })])
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(respond(status()))
+        .mockResolvedValueOnce(respond(status()))
+        .mockResolvedValueOnce(respond({ queued: ['ca'] }, 202))
+        .mockResolvedValueOnce(respond(after))
+        .mockResolvedValueOnce(respond(after))
+        .mockResolvedValueOnce(respond({ error: 'busy', busy: ['en'] }, 409))
+        .mockResolvedValue(respond(after)),
+    )
+    render(<TranslateControl />)
+    await openDrawer()
+    await userEvent.click(within(drawer()).getByRole('checkbox', { name: 'English' }))
+    await submit()
+    await waitFor(() => expect(liveRegion().textContent).toContain('translator:done'))
+    await userEvent.click(within(drawer()).getByRole('button', { name: 'general:close' }))
+
+    await openDrawer()
+    await submit()
+    await waitFor(() => expect(liveRegion().textContent).toContain('translator:busy'))
+    await userEvent.click(within(drawer()).getByRole('button', { name: 'general:close' }))
+    await openDrawer()
+    await settle()
+
+    expect(liveRegion().textContent).toBe('')
+    expect(barRegion().textContent).toBe('')
+  })
+
+  it('sums up a batch launched elsewhere once its own batch is over', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(respond(status()))
+      .mockResolvedValueOnce(respond(status()))
+      .mockResolvedValueOnce(respond({ queued: ['ca'] }, 202))
+      .mockResolvedValueOnce(respond(status([doneCa, row({ locale: 'en' })])))
+      .mockResolvedValueOnce(
+        respond(status([doneCa, row({ locale: 'en', state: 'running' })])),
+      )
+      .mockResolvedValue(
+        respond(
+          status([doneCa, row({ locale: 'en', state: 'done', translatedAt: 'x' })]),
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    render(<TranslateControl />)
+    await openDrawer()
+    await userEvent.click(within(drawer()).getByRole('checkbox', { name: 'English' }))
+    await submit()
+    await waitFor(() => expect(liveRegion().textContent).toContain('translator:done'))
+    await userEvent.click(within(drawer()).getByRole('button', { name: 'general:close' }))
+
+    await openDrawer()
+    await waitFor(() =>
+      expect(liveRegion().textContent).toContain('translator:inProgress'),
+    )
+    await advance()
+
+    expect(liveRegion().textContent).toContain('translator:finished')
   })
 })
