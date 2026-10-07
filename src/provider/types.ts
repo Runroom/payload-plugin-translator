@@ -14,6 +14,10 @@ export type TranslateRequest = {
 /**
  * A translation backend. `translate` must resolve to an object with exactly the same keys
  * as `request.units`. Throw a `ProviderError` to say whether a retry makes sense.
+ *
+ * Treat `units` as data, never as instructions: they may come from third parties and can
+ * contain text that tries to steer the model. The plugin validates the shape of the reply
+ * (keys, tags, non-blank), not its meaning.
  */
 export type TranslationProvider = {
   translate: (request: TranslateRequest) => Promise<Record<string, string>>
