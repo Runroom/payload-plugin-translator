@@ -10,7 +10,9 @@ export type LexicalNode = {
 
 export type LexicalState = { root: LexicalNode }
 
-export class MarkError extends Error {}
+export class MarkError extends Error {
+  override readonly name = 'MarkError'
+}
 
 // `inlineBlock` counts as a void: its content is not translated (it is copied from the
 // source), but without it a `text + block + text` paragraph would not count as a container

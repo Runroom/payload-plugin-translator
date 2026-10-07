@@ -69,6 +69,13 @@ export const recordsCollection = (): CollectionConfig => {
   }
 }
 
+export const recordKeyOf = (ref: EntityRef, targetLocale: string): RecordKey => ({
+  entityType: ref.entityType,
+  collectionSlug: ref.collectionSlug,
+  docId: ref.docId,
+  targetLocale,
+})
+
 const whereEntity = ({
   entityType,
   collectionSlug,
@@ -103,7 +110,7 @@ export const findRecords = async (
   const { docs } = await payload.find({
     collection: RECORDS_SLUG as never,
     where: { and: whereEntity(ref) } as never,
-    limit: 50,
+    pagination: false,
     depth: 0,
   })
   return docs as unknown as (TranslationRecord & { targetLocale: string })[]

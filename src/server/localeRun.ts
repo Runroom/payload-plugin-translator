@@ -11,8 +11,9 @@ import type { TranslatableValue } from '../core/types.js'
 import { translatedValue, unitIdsOf } from '../core/units.js'
 import type { TranslationProvider } from '../provider/types.js'
 import type { Entity, EntityRef } from './entity.js'
+import { ConcurrentEditError } from './errors.js'
 import type { RecordKey } from './records.js'
-import { saveRecord } from './records.js'
+import { recordKeyOf, saveRecord } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
 export type TranslationJobInput = EntityRef & {
@@ -23,13 +24,6 @@ export type TranslationJobInput = EntityRef & {
 }
 
 type PathWrite = FieldWrite & { path: string }
-
-export const keyOf = (input: EntityRef, targetLocale: string): RecordKey => ({
-  entityType: input.entityType,
-  collectionSlug: input.collectionSlug,
-  docId: input.docId,
-  targetLocale,
-})
 
 export type LocaleRun = {
   payload: Payload
@@ -66,7 +60,7 @@ const translatePlan = async ({
     onBatch: async () => {
       try {
         await saveRecord(payload, {
-          key: keyOf(input, targetLocale),
+          key: recordKeyOf(input, targetLocale),
           data: { status: 'running' },
         })
       } catch (err) {
@@ -141,10 +135,6 @@ const hashesOf = ({
   return hashes
 }
 
-export class ConcurrentEditError extends Error {
-  override readonly name = 'ConcurrentEditError'
-}
-
 // Payload does not merge locales on save: each save (a version or the document, depending
 // on drafts) is written whole from the latest one, so a save in another locale that
 // overlaps ours can return this locale's fields to their previous value.
@@ -171,7 +161,7 @@ const verifyWrite = async ({
   // fingerprints and would become "edited by hand".
   await saveVerified({
     payload,
-    key: keyOf(input, targetLocale),
+    key: recordKeyOf(input, targetLocale),
     fields: { ...previous, ...Object.fromEntries(verified) },
   })
   throw new ConcurrentEditError(

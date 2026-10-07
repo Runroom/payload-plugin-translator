@@ -115,7 +115,7 @@ export const openAIProvider = ({
   apiKey,
   model,
   // The SDK defaults (10 min and 2 retries) would keep a job alive beyond the window in
-  // which its record locks the document.
+  // which its record locks the document (`BUSY_WINDOW_MS` in server/limits.ts).
   client = new OpenAI({
     apiKey,
     timeout: 60_000,

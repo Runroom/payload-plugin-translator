@@ -8,6 +8,7 @@ import { isPendingState } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { Entity, EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
+import { BUSY_WINDOW_MS } from './limits.js'
 import { notifyLiveWrites } from './liveWrites.js'
 import type { TranslationRecord } from './records.js'
 import { findRecords } from './records.js'
@@ -16,8 +17,6 @@ import type { TranslatorSettings } from './settings.js'
 type LocaleRecord = TranslationRecord & { targetLocale: string }
 
 type Translatables = TranslatableValue[]
-
-const BUSY_WINDOW_MS = 15 * 60 * 1000
 
 // An in-progress record whose process died stays `running` forever; after this window it
 // stops blocking a new translation.

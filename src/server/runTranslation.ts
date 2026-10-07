@@ -1,14 +1,13 @@
 import type { Payload } from 'payload'
-import { JobCancelledError, NotFound, ValidationError } from 'payload'
+import { JobCancelledError } from 'payload'
 
-import { MarkError } from '../core/lexical.js'
-import { ProviderError } from '../provider/types.js'
 import type { EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf, targetLocalesOf } from './entity.js'
+import { ConcurrentEditError, isUnrecoverable, PreviousFailure } from './errors.js'
 import type { LocaleRun, Outcome, TranslationJobInput } from './localeRun.js'
-import { ConcurrentEditError, execute, keyOf } from './localeRun.js'
+import { execute } from './localeRun.js'
 import type { RecordKey } from './records.js'
-import { findRecord, saveRecord } from './records.js'
+import { findRecord, recordKeyOf, saveRecord } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
 export type RawTranslationJobInput = Omit<
@@ -21,22 +20,6 @@ export type RawTranslationJobInput = Omit<
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
-
-// A locale that already failed for good in this same job: the POST sets every record to
-// `queued` before the job starts, so a `failed` found here can only come from an earlier
-// attempt of this job. Repeating it would spend provider calls to fail the same way.
-class PreviousFailure extends Error {
-  override readonly name = 'PreviousFailure'
-}
-
-// Without drafts Payload validates the whole document on save (a required `label` empty in
-// the target, a custom validator): retrying does not fix it.
-const isUnrecoverable = (error: unknown): boolean =>
-  (error instanceof ProviderError && !error.retryable) ||
-  error instanceof MarkError ||
-  error instanceof NotFound ||
-  error instanceof ValidationError ||
-  error instanceof PreviousFailure
 
 const saveFailure = async ({
   payload,
@@ -103,7 +86,7 @@ const translateLocale = async ({
   jobCreatedAt?: string | Date
 }): Promise<{ error: unknown } | null> => {
   const { payload, input, targetLocale } = run
-  const key = keyOf(input, targetLocale)
+  const key = recordKeyOf(input, targetLocale)
   try {
     const record = await findRecord(payload, key)
     if (
@@ -135,7 +118,7 @@ const cancelAll = async ({
   message: string
 }): Promise<never> => {
   for (const targetLocale of targets) {
-    await saveFailure({ payload, key: keyOf(input, targetLocale), message })
+    await saveFailure({ payload, key: recordKeyOf(input, targetLocale), message })
   }
   throw new JobCancelledError(message)
 }
