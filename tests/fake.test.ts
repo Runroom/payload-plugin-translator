@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fakeProvider } from '../src/provider/fake.js'
+import { fakeProvider } from '../src/exports/testing.js'
 
 const request = {
   sourceLocale: 'es',

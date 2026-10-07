@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import packageJson from '../package.json' with { type: 'json' }
 import * as client from '../src/exports/client.js'
 import * as openai from '../src/exports/openai.js'
+import * as testing from '../src/exports/testing.js'
 import * as root from '../src/index.js'
 
 type Manifest = {
@@ -92,13 +93,27 @@ describe('package entry points', () => {
     })
   })
 
+  it('ships the fake provider from ./testing and not from the root entry', () => {
+    expect(root).not.toHaveProperty('fakeProvider')
+    expect(testing).toHaveProperty('fakeProvider')
+    expect(manifest.exports['./testing']).toEqual({
+      types: './dist/exports/testing.d.ts',
+      default: './dist/exports/testing.js',
+    })
+  })
+
   // npm ignores `publishConfig.exports`: the manifest has to point at `dist` as it is, and
   // TypeScript only honours the `types` condition when it comes first.
   it('points every code entry at dist with the types condition first', () => {
     const codeEntries = Object.entries(manifest.exports).filter(
       ([key]) => key !== './package.json',
     )
-    expect(codeEntries.map(([key]) => key)).toEqual(['.', './client', './openai'])
+    expect(codeEntries.map(([key]) => key)).toEqual([
+      '.',
+      './client',
+      './openai',
+      './testing',
+    ])
     for (const [, entry] of codeEntries) {
       expect(Object.keys(entry as object)).toEqual(['types', 'default'])
       for (const target of Object.values(entry as object)) {

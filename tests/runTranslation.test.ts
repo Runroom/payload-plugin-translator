@@ -5,7 +5,7 @@ import type { Mock } from 'vitest'
 
 import { fingerprint } from '../src/core/fingerprint.js'
 import { MarkError } from '../src/core/lexical.js'
-import { fakeProvider } from '../src/provider/fake.js'
+import { fakeProvider } from '../src/exports/testing.js'
 import { ProviderError } from '../src/provider/types.js'
 import { RECORDS_SLUG } from '../src/server/records.js'
 import { runTranslation } from '../src/server/runTranslation.js'

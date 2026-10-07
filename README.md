@@ -15,7 +15,7 @@ locales, without overwriting text someone edited by hand.
 
 ## Requirements
 
-- **Payload `^3.90.2`** with `@payloadcms/ui`, **React 19** and **Node.js `>=20.9.0`**.
+- **Payload `^3.90.2`** with `@payloadcms/ui`, **React 19** and **Node.js `>=22.12.0`**.
 - **`localization`** in your Payload config. The plugin throws at startup without it.
 - **Something that runs the jobs.** `POST /api/translator/translate` queues a job and
   starts it right away without waiting for it, so the translation runs after the response.
@@ -118,13 +118,15 @@ single tab it excludes every field inside it.
 ### Entry points
 
 - `@runroom/payload-plugin-translator`: `translatorPlugin`, `translatorTranslations`,
-  `fakeProvider`, `ProviderError`, `isTranslatorWrite`, `TRANSLATOR_WRITE_CONTEXT`,
-  `RECORDS_SLUG`, `TRANSLATE_TASK_SLUG`, and the types `TranslatorPluginOptions`,
+  `ProviderError`, `isTranslatorWrite`, `TRANSLATOR_WRITE_CONTEXT`, `RECORDS_SLUG`,
+  `TRANSLATE_TASK_SLUG`, and the types `TranslatorPluginOptions`,
   `TranslatorEntityOptions`, `TranslationProvider`, `TranslateRequest`,
   `TranslatorAccess`, `TranslatorAccessOperation`, `OnLiveWrite`, `EntityRef`,
   `StatusResponse` and `LocaleStatus`.
 - `@runroom/payload-plugin-translator/openai`: `openAIProvider` and the type
   `OpenAIClientLike`. Kept apart so `openai` stays an optional dependency.
+- `@runroom/payload-plugin-translator/testing`: `fakeProvider`, kept out of the main entry
+  so test code does not ship with it.
 - `@runroom/payload-plugin-translator/client`: `TranslateControl`, the admin component the
   plugin registers (you do not import it yourself).
 
@@ -134,8 +136,8 @@ single tab it excludes every field inside it.
   JSON schema, a 60 s timeout and one SDK retry. Refusals, content-filter cuts, an
   exhausted quota (`insufficient_quota`) and 400/401/403/404/422 errors are not retried; a
   response cut by `max_output_tokens`, a 429, a 5xx or a network error is.
-- `fakeProvider({ delayMs? })` prefixes every value with `[<locale>] `. Meant for tests
-  and E2E runs without an API key.
+- `fakeProvider({ delayMs? })` (from `/testing`) prefixes every value with `[<locale>] `.
+  Meant for tests and E2E runs without an API key.
 - A custom provider implements
   `{ translate({ sourceLocale, targetLocale, instructions, units }) }` and returns an
   object with exactly the same keys as `units`. Values may contain numbered tags
