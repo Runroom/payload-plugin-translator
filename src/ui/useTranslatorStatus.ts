@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { LocaleStatus, StatusResponse } from '../server/status.js'
-import type { Target } from './target.js'
+import type { EntityQuery, LocaleStatus, StatusResponse } from '../shared/api.js'
+import { STATUS_PATH } from '../shared/api.js'
 
 const POLL_MS = 2_000
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
@@ -195,7 +195,7 @@ export const useTranslatorStatus = ({
   target,
 }: {
   apiBase: string
-  target: Target | null
+  target: EntityQuery | null
 }): {
   status: StatusResponse | null
   refresh: () => Promise<void>
@@ -206,9 +206,7 @@ export const useTranslatorStatus = ({
 } => {
   const { status, seen, apply, queueLocales, resetSeen } = useStatusState()
   const next = useSequence()
-  const url = target
-    ? `${apiBase}/translator/status?${new URLSearchParams(target)}`
-    : null
+  const url = target ? `${apiBase}${STATUS_PATH}?${new URLSearchParams(target)}` : null
 
   const queuedAt = useRef(0)
   // Another document: what was seen running on the previous one says nothing here.

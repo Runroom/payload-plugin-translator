@@ -1,4 +1,4 @@
-import type { StatusResponse } from '../server/status.js'
+import type { StatusResponse } from '../shared/api.js'
 
 export type Translate = (key: never, vars?: Record<string, unknown>) => string
 

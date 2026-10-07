@@ -4,7 +4,7 @@ import { Button } from '@payloadcms/ui'
 import type { ReactElement, ReactNode } from 'react'
 import { useId, useLayoutEffect, useRef } from 'react'
 
-import type { LocaleStatus } from '../server/status.js'
+import type { LocaleStatus } from '../shared/api.js'
 import type { Tone } from './Notice.js'
 import { Spinner } from './Notice.js'
 import type { LocaleLink } from './localeLink.js'

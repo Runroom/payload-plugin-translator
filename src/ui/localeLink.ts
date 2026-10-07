@@ -1,6 +1,6 @@
 import { formatAdminURL } from 'payload/shared'
 
-import type { Target } from './target.js'
+import type { EntityQuery } from '../shared/api.js'
 
 export type LocaleLink = { href: string; newTab: boolean }
 
@@ -17,16 +17,16 @@ export const localeLinkOf =
   }: {
     editDepth: number
     adminRoute: string
-    target: Target | null
+    target: EntityQuery | null
   }): ((locale: string) => LocaleLink | null) =>
   locale => {
     const query = `?locale=${encodeURIComponent(locale)}`
     if (editDepth <= 1) return { href: query, newTab: false }
-    const path: `/${string}` | null = target?.global
-      ? `/globals/${encodeURIComponent(target.global)}`
-      : target?.collection && target.id
-        ? `/collections/${encodeURIComponent(target.collection)}/${encodeURIComponent(target.id)}`
-        : null
+    const path: `/${string}` | null = !target
+      ? null
+      : 'global' in target
+        ? `/globals/${encodeURIComponent(target.global)}`
+        : `/collections/${encodeURIComponent(target.collection)}/${encodeURIComponent(target.id)}`
     if (!path) return null
     return {
       href: formatAdminURL({ adminRoute, path: `${path}${query}` }),

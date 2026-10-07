@@ -13,7 +13,7 @@ import {
 import type { Locale } from 'payload'
 import type { ReactElement } from 'react'
 
-import type { LocaleStatus, StatusResponse } from '../server/status.js'
+import type { LocaleStatus, StatusResponse } from '../shared/api.js'
 import { Notice } from './Notice.js'
 import { TargetNotice } from './TargetNotice.js'
 import { TranslateButton } from './TranslateButton.js'

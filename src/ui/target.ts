@@ -1,6 +1,6 @@
-// What identifies, for the endpoints, what is being edited: a global by its slug, a
-// document by collection and id. `null` while Payload does not know it yet (a new document).
-export type Target = Record<string, string>
+import type { EntityQuery } from '../shared/api.js'
+
+// `null` while Payload does not know the entity yet (a new document).
 
 export const targetOf = ({
   id,
@@ -10,7 +10,7 @@ export const targetOf = ({
   id: number | string | undefined
   collectionSlug: string | undefined
   globalSlug: string | undefined
-}): Target | null => {
+}): EntityQuery | null => {
   if (globalSlug) return { global: globalSlug }
   if (collectionSlug && id !== undefined)
     return { collection: collectionSlug, id: String(id) }

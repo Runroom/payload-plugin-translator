@@ -2,9 +2,14 @@
 
 import { useState } from 'react'
 
+import type {
+  EntityQuery,
+  TranslateRequestBody,
+  TranslatorErrorCode,
+} from '../shared/api.js'
+import { TRANSLATE_PATH } from '../shared/api.js'
 import type { Message } from './messages.js'
 import type { TranslateOptionValues } from './options.js'
-import type { Target } from './target.js'
 
 const REFUSALS: Record<number, string> = {
   400: 'translator:badRequest',
@@ -14,9 +19,12 @@ const REFUSALS: Record<number, string> = {
   503: 'translator:notConfigured',
 }
 
-const errorCodeOf = async (response: Response): Promise<unknown> => {
+const errorCodeOf = async (
+  response: Response,
+): Promise<TranslatorErrorCode | undefined> => {
   try {
-    return ((await response.json()) as { error?: unknown } | null)?.error
+    const error = ((await response.json()) as { error?: unknown } | null)?.error
+    return typeof error === 'string' ? (error as TranslatorErrorCode) : undefined
   } catch {
     return undefined
   }
@@ -38,7 +46,7 @@ const requestTranslation = async ({
   body,
 }: {
   url: string
-  body: Record<string, unknown>
+  body: TranslateRequestBody
 }): Promise<Message | null> => {
   let response: Response
   try {
@@ -101,7 +109,7 @@ export const useTranslateRequest = ({
   onRefused,
 }: {
   apiBase: string
-  target: Target | null
+  target: EntityQuery | null
   sourceLocale: string
   markQueued: (locales: string[]) => void
   refresh: () => Promise<void>
@@ -118,9 +126,10 @@ export const useTranslateRequest = ({
   const visit = useVisit(target ? JSON.stringify(target) : null)
 
   const send: SendTranslation = async ({ targetLocales, options }) => {
+    if (!target) return false
     setSubmitting(true)
     const failure = await requestTranslation({
-      url: `${apiBase}/translator/translate`,
+      url: `${apiBase}${TRANSLATE_PATH}`,
       body: {
         ...target,
         sourceLocale,

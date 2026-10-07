@@ -3,7 +3,7 @@
 import { Button } from '@payloadcms/ui'
 import type { ReactElement } from 'react'
 
-import type { LocaleStatus } from '../server/status.js'
+import type { LocaleStatus } from '../shared/api.js'
 import { Spinner } from './Notice.js'
 import type { Translate } from './messages.js'
 
