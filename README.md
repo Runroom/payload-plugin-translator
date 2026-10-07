@@ -17,14 +17,18 @@ locales, without overwriting text someone edited by hand.
 
 - **Payload `^3.90.2`** with `@payloadcms/ui`, **React 19** and **Node.js `>=22.12.0`**.
 - **`localization`** in your Payload config. The plugin throws at startup without it.
-- **Something that runs the jobs.** `POST /api/translator/translate` queues a job and
-  starts it right away without waiting for it, so the translation runs after the response.
-  That needs either:
-  - a **long-lived Node process** (`next start`, a container, a VM), where the promise
-    outlives the response; or
-  - on serverless, an **external cron** that calls Payload's
-    `GET /api/payload-jobs/run?queue=translations` (protected by `jobs.access.run`, which
-    defaults to any logged-in user).
+- **Something that runs the jobs.** `POST /api/translator/translate` queues a job and, by
+  default (`runOnRequest: true`), starts it right away without waiting for it, so the
+  translation runs after the response. That needs a **long-lived Node process**
+  (`next start`, a container, a VM), where the promise outlives the response. On
+  **serverless**, the function can be frozen or killed once the response is sent, after
+  Payload has marked the job as `processing`; later runs of the queue skip a processing
+  job, so the translation is abandoned until its lock expires (15 minutes) and someone
+  requests it again. There, set **`runOnRequest: false`**: the request only queues the job
+  (202) and an **external cron** that calls Payload's
+  `GET /api/payload-jobs/run?queue=translations` (protected by `jobs.access.run`, which
+  defaults to any logged-in user) runs it, or `jobs.autoRun` does where the platform keeps
+  it alive.
 - **`jobs.autoRun` covering the plugin's queue** (or the external cron above). Without it,
   a job that fails with a retryable error stays queued and its retry never runs. The
   plugin checks this in `onInit` and, when a provider is configured, logs this warning if
@@ -112,6 +116,7 @@ After adding the plugin:
 | `instructions` | `({ sourceLocale, targetLocale }) => string`                           | `() => ''`       | Extra instructions for the model (context, tone, terminology). Appended to the provider's own prompt.                                                                                                                                  |
 | `access`       | `({ req, ref?, operation }) => boolean \| Promise<boolean>`            | required         | Who may use the translator. See [Permissions](#permissions).                                                                                                                                                                           |
 | `queue`        | `string`                                                               | `'translations'` | Jobs queue the translation jobs are queued in.                                                                                                                                                                                         |
+| `runOnRequest` | `boolean`                                                              | `true`           | Whether `POST /translate` runs the job it queued right away, without waiting for it. Set it to `false` on serverless, where the function may be frozen after the response, and let `jobs.autoRun` or an external cron run the queue.   |
 | `onLiveWrite`  | `({ req, entityType, slug, docId, locales }) => void \| Promise<void>` | —                | Called after a translation of an entity **without drafts**, so you can revalidate the public site (e.g. `revalidatePath`). It only runs from `GET /status`: see [Live writes and `onLiveWrite`](#live-writes-and-onlivewrite).         |
 
 Excluding a field: add `custom: { translator: 'exclude' }` to the field config. Useful for
@@ -305,10 +310,13 @@ even when the source text is identical.
 The `translation-records` collection keeps, per entity and target locale, two fingerprints
 of every translated field: one of the source text it was translated from and one of the
 output as Payload saved it (after your `beforeChange` hooks). They decide what is up to
-date, what changed in the source and what was edited by hand. Fingerprints follow array
-and block row ids, so reordering rows does not make a translation stale. A field emptied
-in the source keeps its fingerprints, so filling it again does not turn the old
-translation into "edited by hand".
+date, what changed in the source and what was edited by hand. Each entry also names the
+locale its source fingerprint was taken from: a field left out of a run (one the requester
+may not touch, or whose write was refused) keeps the provenance of its earlier translation
+while the record itself names the locale of the last run, so a later run from any locale
+still knows what it is. Fingerprints follow array and block row ids, so reordering rows
+does not make a translation stale. A field emptied in the source keeps its fingerprints,
+so filling it again does not turn the old translation into "edited by hand".
 
 ### Drafts vs direct writes
 
@@ -322,13 +330,15 @@ verifying after the write, fingerprints) works the same in both modes.
 ### Jobs
 
 `POST /translate` takes the document's lock, sets the records to `queued`, queues one
-`translateDocument` job per document with every target locale and runs it right away,
-filtered by the queued job's id. The locales are translated in sequence inside that job,
-because each write saves the whole document from the latest version. Non-recoverable
-errors (a provider error marked as not retryable, broken formatting, a missing document, a
-validation error) cancel the job; the rest are retried twice with exponential backoff (10
-s base). A retry goes through every locale again, but the finished ones come out unchanged
-thanks to their fingerprints, so no provider call or write is repeated.
+`translateDocument` job per document with every target locale and, with `runOnRequest`
+(the default), runs it right away, filtered by the queued job's id; with
+`runOnRequest: false` it only queues it and `jobs.autoRun` or an external cron runs it.
+The locales are translated in sequence inside that job, because each write saves the whole
+document from the latest version. Non-recoverable errors (a provider error marked as not
+retryable, broken formatting, a missing document, a validation error) cancel the job; the
+rest are retried twice with exponential backoff (10 s base). A retry goes through every
+locale again, but the finished ones come out unchanged thanks to their fingerprints, so no
+provider call or write is repeated.
 
 The lock is a row in `translation-locks` with a unique index per entity, so taking it is a
 single atomic insert in the database: of two simultaneous requests for the same document
@@ -336,16 +346,19 @@ exactly one gets a 202 and the other a 409, whatever the adapter or the number o
 processes. The job carries the lock's token and refreshes the lock (its `updatedAt` is the
 heartbeat) at the start of every attempt, before each record it writes, after every
 provider batch and right before each document write; a refresh that finds the lock gone
-stops the job. So what must fit in the 15-minute window is one provider call with its
-retries, not the whole job. The lock is released when the job ends for good (success,
-cancellation or the last attempt) and kept while a retry is pending. A lock whose
-heartbeat is older than 15 minutes (a process that died mid-job) is taken over by the next
-request; the old job, if it ever runs again, is cancelled as
-`Superseded by a newer translation request` without writing anything, and a job that loses
-its lock while translating stops before its next write, without marking its records
-failed: they already belong to the newer request. Every record the request or the job
-writes carries the lock token (`lockToken`), which is how a retry tells a `failed` record
-of its own earlier attempt (not tried again) from one an older job left behind.
+stops the job. The refresh and the take-over of an expired lock go straight through the
+database adapter as single conditional statements (by token, and by age for the
+take-over), so a heartbeat that lands at any point either keeps the lock or is reported as
+lost; there is no window in which a refreshed lock can still be deleted. So what must fit
+in the 15-minute window is one provider call with its retries, not the whole job. The lock
+is released when the job ends for good (success, cancellation or the last attempt) and
+kept while a retry is pending. A lock whose heartbeat is older than 15 minutes (a process
+that died mid-job) is taken over by the next request; the old job, if it ever runs again,
+is cancelled as `Superseded by a newer translation request` without writing anything, and
+a job that loses its lock while translating stops before its next write, without marking
+its records failed: they already belong to the newer request. Every record the request or
+the job writes carries the lock token (`lockToken`), which is how a retry tells a `failed`
+record of its own earlier attempt (not tried again) from one an older job left behind.
 
 For each locale, the document write and the record that keeps its fingerprints are saved
 inside one database transaction, so the document never holds the translator's text without
@@ -463,6 +476,14 @@ the task label is in English.
   Payload makes them no-ops: the write and the record are saved one after the other, and a
   record save that fails right after the write leaves text the next run keeps as edited by
   hand until `overwriteEdited` is used.
+- **On serverless, a job started by the request can be abandoned.** With
+  `runOnRequest: true` (the default) the request starts the job without awaiting it; a
+  function frozen or killed after the response leaves the job marked `processing`, which
+  every later run of the queue skips, and its lock live. Nothing is lost for good: after
+  15 minutes without a heartbeat (`BUSY_WINDOW_MS`) the lock expires, `/status` reports
+  the locales as interrupted and a new request takes the document over. To avoid the wait,
+  set `runOnRequest: false` there and run the queue from a cron (see
+  [Requirements](#requirements)).
 - **`onLiveWrite` depends on a status request.** It runs from `GET /status`, not from the
   job. If nobody has the admin open when a translation finishes (a closed tab, a cron
   retry overnight), it does not run until the next status request for that document, and

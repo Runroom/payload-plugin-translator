@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { fakeProvider } from '../src/exports/testing.js'
 import { translatorPlugin, translatorTranslations } from '../src/index.js'
+import type { TranslatorPluginOptions } from '../src/plugin/settings.js'
+import { resolveSettings } from '../src/plugin/settings.js'
 
 // Payload resolves per-document permissions against the database; here only the config
 // the plugin returns matters.
@@ -397,6 +399,27 @@ describe('translatorPlugin onInit', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
+  it('warns that nothing will run the jobs when runOnRequest is false and the queue is unscheduled', async () => {
+    const config = await translatorPlugin({
+      collections: { events: {} },
+      provider: fakeProvider(),
+      access: () => true,
+      runOnRequest: false,
+    })(baseConfig())
+    const unscheduled = payloadWith(undefined)
+    const scheduled = payloadWith([{ cron: '* * * * *', queue: 'translations' }])
+
+    await config.onInit!(unscheduled.payload)
+    await config.onInit!(scheduled.payload)
+
+    expect(unscheduled.warn).toHaveBeenCalledTimes(1)
+    const message = String(unscheduled.warn.mock.calls[0]![0])
+    expect(message).toContain('`runOnRequest` is false')
+    expect(message).toContain('nothing will ever run the translation jobs')
+    expect(message).toContain('/api/payload-jobs/run?queue=translations')
+    expect(scheduled.warn).not.toHaveBeenCalled()
+  })
+
   it('warns without autoRun at all, and an entry without queue only covers "default"', async () => {
     const config = await plugin(baseConfig())
     const none = payloadWith(undefined)
@@ -407,5 +430,23 @@ describe('translatorPlugin onInit', () => {
 
     expect(none.warn).toHaveBeenCalledTimes(1)
     expect(unnamed.warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('translatorPlugin runOnRequest', () => {
+  const options: TranslatorPluginOptions = {
+    collections: { events: {} },
+    provider: null,
+    access: () => true,
+  }
+
+  it('runs the queued job from the request unless told otherwise', () => {
+    expect(resolveSettings(options, baseConfig()).runOnRequest).toBe(true)
+    expect(
+      resolveSettings({ ...options, runOnRequest: true }, baseConfig()).runOnRequest,
+    ).toBe(true)
+    expect(
+      resolveSettings({ ...options, runOnRequest: false }, baseConfig()).runOnRequest,
+    ).toBe(false)
   })
 })

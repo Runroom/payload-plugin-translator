@@ -161,25 +161,33 @@ describe('the per-document lock', () => {
     expect(await findLock(harness, refOf(id))).toBeUndefined()
   })
 
-  it('does not take over a lock its holder refreshed between the lookup and the delete', async () => {
+  // The holder's heartbeat lands after the taker read the expired lock and right before
+  // the delete statement reaches the database. A delete that finds the ids first and then
+  // deletes by id would remove the refreshed lock; the conditional statement matches
+  // nothing, and the taker is told the document is busy.
+  it('does not take over a lock its holder refreshes right before the delete statement', async () => {
     const id = await createPost('Refreshed')
     expect((await queueOnly(harness, bodyOf(id))).status).toBe(202)
     const lock = (await findLock(harness, refOf(id)))!
     await ageLock(harness, lock, BUSY_WINDOW_MS + 1)
-    const originalDelete = harness.payload.delete.bind(harness.payload)
-    // The holder's heartbeat lands after the taker read the expired lock and before it
-    // deletes it: the delete must not match any more.
-    const remove = vi.spyOn(harness.payload, 'delete').mockImplementation((async (args: {
-      collection: string
-    }) => {
-      if (args.collection === LOCKS_SLUG) await ageLock(harness, lock, 0)
-      return originalDelete(args as never)
-    }) as never)
+    const { db } = harness.payload
+    const heartbeatBefore = (
+      method: 'deleteMany' | 'deleteOne',
+    ): ReturnType<typeof vi.spyOn> => {
+      const original = db[method].bind(db)
+      return vi.spyOn(db, method).mockImplementation((async (args: {
+        collection: string
+      }) => {
+        if (args.collection === LOCKS_SLUG) await ageLock(harness, lock, 0)
+        return original(args as never)
+      }) as never)
+    }
+    const spies = [heartbeatBefore('deleteMany'), heartbeatBefore('deleteOne')]
 
     try {
       expect((await translate(harness, bodyOf(id))).status).toBe(409)
     } finally {
-      remove.mockRestore()
+      for (const spy of spies) spy.mockRestore()
     }
 
     expect((await findLock(harness, refOf(id)))?.token).toBe(lock.token)

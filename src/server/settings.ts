@@ -33,6 +33,8 @@ export type TranslatorSettings = {
   instructions: (args: { sourceLocale: string; targetLocale: string }) => string
   access: TranslatorAccess
   queue: string
+  // Whether `POST /translate` runs the job it queued right away, or leaves it to the queue.
+  runOnRequest: boolean
   onLiveWrite?: OnLiveWrite
 }
 

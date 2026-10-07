@@ -125,6 +125,75 @@ describe('planTranslation', () => {
     expect(plan.kept).toEqual(['title'])
   })
 
+  // One record holds entries from several runs when a field was left out of one (a
+  // requester who may not touch it, a refused write). The entry's own locale decides.
+  it('re-translates a field whose entry came from another locale than the record says', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Gift')],
+      target: [field('title', 'cadeau')],
+      previous: {
+        title: { source: hashOf('Gift'), output: hashOf('cadeau'), sourceLocale: 'en' },
+      },
+      overwriteEdited: false,
+      sourceLocale: 'de',
+      previousSourceLocale: 'de',
+    })
+
+    expect(plan.translate.map(value => value.path)).toEqual(['title'])
+  })
+
+  it('leaves alone a field whose entry came from this locale although the record says another', () => {
+    const entry = { source: hashOf('Gift'), output: hashOf('cadeau'), sourceLocale: 'de' }
+    const plan = planTranslation({
+      source: [field('title', 'Gift')],
+      target: [field('title', 'cadeau')],
+      previous: { title: entry },
+      overwriteEdited: false,
+      sourceLocale: 'de',
+      previousSourceLocale: 'en',
+    })
+
+    expect(plan.translate).toEqual([])
+    expect(plan.hashes.title).toEqual(entry)
+  })
+
+  it('still keeps a hand edit whose entry came from another locale', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Gift')],
+      target: [field('title', 'Corrigé à la main')],
+      previous: {
+        title: { source: hashOf('Gift'), output: hashOf('cadeau'), sourceLocale: 'en' },
+      },
+      overwriteEdited: false,
+      sourceLocale: 'de',
+      previousSourceLocale: 'de',
+    })
+
+    expect(plan.translate).toEqual([])
+    expect(plan.kept).toEqual(['title'])
+    expect(plan.hashes.title).toEqual({
+      source: hashOf('Gift'),
+      output: null,
+      sourceLocale: 'de',
+    })
+  })
+
+  it('stamps the kept and unchanged entries with the locale translated from', () => {
+    const plan = planTranslation({
+      source: [field('title', 'Curso'), field('subtitle', 'Sub')],
+      target: [field('title', 'Course'), field('subtitle', 'Edited')],
+      previous: { title: { source: hashOf('Curso'), output: hashOf('Course') } },
+      overwriteEdited: false,
+      sourceLocale: 'es',
+      previousSourceLocale: 'es',
+    })
+
+    expect(plan.hashes).toEqual({
+      title: { source: hashOf('Curso'), output: hashOf('Course'), sourceLocale: 'es' },
+      subtitle: { source: hashOf('Sub'), output: null, sourceLocale: 'es' },
+    })
+  })
+
   it('records the target fingerprint seen at planning time for every planned field', () => {
     const plan = planTranslation({
       source: [field('title', 'Curso'), field('subtitle', 'Sub')],
@@ -319,6 +388,21 @@ describe('countChanged', () => {
 
   it('ignores empty source fields', () => {
     expect(countChanged({ source: [field('title', '')], hashes: {} })).toBe(0)
+  })
+
+  // Its text in the locale compared against was never translated: the next run would
+  // translate it again, so it is reported as changed without reading the other locale.
+  it('counts a field whose entry came from another locale as changed', () => {
+    const source = [field('title', 'Same')]
+    const fromEnglish = {
+      title: { source: hashOf('Same'), output: hashOf('[ca] Same'), sourceLocale: 'en' },
+    }
+
+    expect(countChanged({ source, hashes: fromEnglish, sourceLocale: 'es' })).toBe(1)
+    expect(countChanged({ source, hashes: fromEnglish, sourceLocale: 'en' })).toBe(0)
+    // An entry without a locale of its own comes from the record's.
+    const unstamped = { title: { source: hashOf('Same'), output: hashOf('[ca] Same') } }
+    expect(countChanged({ source, hashes: unstamped, sourceLocale: 'es' })).toBe(0)
   })
 })
 

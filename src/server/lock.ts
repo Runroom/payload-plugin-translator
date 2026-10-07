@@ -93,19 +93,27 @@ const tryCreate = async (
   }
 }
 
-// Deleting by id and token means two takers of the same expired lock cannot both delete:
-// the second delete finds nothing, and the fresh lock the first one creates has another
-// id and token. The age filter keeps a lock its holder refreshed since `findLock` read
-// it: Payload's `delete` with a `where` is a find followed by a delete by id, so a
-// heartbeat that lands between those two steps can still be lost. That window is the
-// milliseconds between two queries, not the time since the lookup.
-const deleteExpired = async (payload: Payload, lock: Lock): Promise<void> => {
+// A take-over must not delete a lock its holder refreshed since `findLock` read it. The
+// delete goes through the database adapter, where a `deleteMany` with a `where` is one
+// conditional statement (`DELETE … WHERE` in @payloadcms/drizzle, `Model.deleteMany` in
+// @payloadcms/db-mongodb); Payload's own `delete` operation would find the matching ids
+// first and then delete each by id, letting a heartbeat that lands in between be lost. So
+// the heartbeat either lands before the statement, which then matches nothing, or after
+// it, when the lock is gone and the holder's next refresh reports the loss. The token
+// keeps two takers of the same expired lock apart: the second delete matches nothing and
+// the fresh lock the first one creates has another token. After the delete, the unique
+// index decides who creates the new lock, as always.
+const deleteExpired = async (
+  payload: Payload,
+  ref: EntityRef,
+  lock: Lock,
+): Promise<void> => {
   const expiredBefore = new Date(Date.now() - BUSY_WINDOW_MS).toISOString()
-  await payload.delete({
-    collection: LOCKS_SLUG as never,
+  await payload.db.deleteMany({
+    collection: LOCKS_SLUG,
     where: {
       and: [
-        { id: { equals: lock.id } },
+        ...whereEntity(ref),
         { token: { equals: lock.token } },
         { updatedAt: { less_than: expiredBefore } },
       ],
@@ -121,7 +129,7 @@ const takeOver = async (
   const existing = await findLock(payload, ref)
   if (existing) {
     if (isLiveLock(existing)) return false
-    await deleteExpired(payload, existing)
+    await deleteExpired(payload, ref, existing)
   }
   return tryCreate(payload, ref, token)
 }
@@ -136,20 +144,22 @@ export const acquireLock = async (
   return (await takeOver(payload, ref, token)) ? token : null
 }
 
-// The heartbeat: Payload stamps `updatedAt` on every update. A lock taken over since has
-// another token, so the conditional update touches nothing and reports the loss.
+// The heartbeat. It goes through the adapter too, as one conditional `UPDATE … WHERE`
+// (`atomic`) that returns the row it touched, or `null` when none carries the token: a
+// lock taken over since has another token, so the refresh touches nothing and reports
+// the loss. The adapter does not stamp `updatedAt`, so it is set here.
 export const refreshLock = async (
   payload: Payload,
   ref: EntityRef,
   token: string,
 ): Promise<boolean> => {
-  const { docs } = await payload.update({
-    collection: LOCKS_SLUG as never,
+  const refreshed: unknown = await payload.db.updateOne({
+    collection: LOCKS_SLUG,
     where: whereHeld(ref, token) as never,
-    data: { token } as never,
-    depth: 0,
+    data: { updatedAt: new Date().toISOString() },
+    options: { atomic: true },
   })
-  return docs.length > 0
+  return refreshed !== null && refreshed !== undefined
 }
 
 export const releaseLock = async (
@@ -157,8 +167,8 @@ export const releaseLock = async (
   ref: EntityRef,
   token: string,
 ): Promise<void> => {
-  await payload.delete({
-    collection: LOCKS_SLUG as never,
+  await payload.db.deleteMany({
+    collection: LOCKS_SLUG,
     where: whereHeld(ref, token) as never,
   })
 }

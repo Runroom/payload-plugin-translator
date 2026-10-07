@@ -48,6 +48,16 @@ export type TranslatorPluginOptions = {
    */
   queue?: string
   /**
+   * Whether `POST /translate` runs the job it queued right away, without waiting for it,
+   * so the translation starts as soon as the request is answered. That needs a Node
+   * process that outlives the response. On serverless, where the function can be frozen
+   * or killed after Payload marked the job as processing, set it to `false`: the request
+   * then only queues the job, and `jobs.autoRun` or an external cron hitting Payload's
+   * jobs run endpoint processes the queue.
+   * @default true
+   */
+  runOnRequest?: boolean
+  /**
    * Called after a translation of an entity without drafts is written, so you can
    * revalidate the public site. It runs from `GET /status`, not from the job.
    */
@@ -126,5 +136,6 @@ export const resolveSettings = (
   instructions: options.instructions ?? ((): string => ''),
   access: options.access,
   queue: options.queue ?? 'translations',
+  runOnRequest: options.runOnRequest ?? true,
   onLiveWrite: options.onLiveWrite,
 })

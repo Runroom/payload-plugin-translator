@@ -8,10 +8,12 @@ import { runTranslation } from '../../../src/server/runTranslation.js'
 import type { Docs } from './helpers.js'
 import {
   fields,
+  heldLock,
   input,
   lastRecord,
   LOCK_TOKEN,
   recordsFor,
+  refreshOf,
   settings,
   userOf,
   withLock,
@@ -47,6 +49,8 @@ const transactionalPayload = ({
   })
   const viewOf = (call: Call): Docs => (call.req?.transactionID ? pending! : state)
   const db = {
+    updateOne: vi.fn(refreshOf(heldLock())),
+    deleteMany: vi.fn(),
     beginTransaction: vi.fn(async () => {
       pending = structuredClone(state)
       return 'tx-1'
@@ -83,7 +87,6 @@ const transactionalPayload = ({
         return structuredClone(view[args.locale])
       }),
     ),
-    delete: vi.fn(),
   } as unknown as Payload
   return { payload, records, log }
 }
