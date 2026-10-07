@@ -354,10 +354,26 @@ later), the hook does not fire until someone does.** Errors in the hook are caug
 logged as warnings, and the translation is marked as notified anyway, so a failing hook is
 not retried on every poll.
 
+This matters for the public site: when a translation finishes with nobody watching the
+admin, the cache of your public pages can stay stale until the next status request for
+that document. If that matters, also revalidate on a schedule, or from your own
+`afterChange` hook, using `isTranslatorWrite(context)` to recognise the translator's
+writes (see [Permissions](#permissions)).
+
 **The hook must be idempotent.** Two status polls that overlap (two admin tabs, a slow
 hook) can both read the translation as not yet notified and call the hook twice for the
 same translation. Revalidating a path twice is harmless; anything that is not (sending an
 email, for instance) needs its own guard.
+
+### Untrusted content
+
+The provider is told that the values it receives are content to translate, never
+instructions, and to translate any such text literally. That reduces prompt injection but
+does not eliminate it: text imported or written by a third party can still try to steer
+the model. The output is validated for structure only (same keys, same marks, not blank),
+not for meaning. Collections and globals without drafts publish the model's output without
+human review, so use drafts for content from untrusted sources. A custom provider should
+treat `units` as data in the same way.
 
 ### Lexical rich text
 
@@ -430,6 +446,13 @@ the task label is in English.
   Payload makes them no-ops: the write and the record are saved one after the other, and a
   record save that fails right after the write leaves text the next run keeps as edited by
   hand until `overwriteEdited` is used.
+- **`onLiveWrite` depends on a status request.** It runs from `GET /status`, not from the
+  job. If nobody has the admin open when a translation finishes (a closed tab, a cron
+  retry overnight), it does not run until the next status request for that document, and
+  the public cache can stay stale until then. Revalidate also on a schedule or from your
+  own `afterChange` hook with `isTranslatorWrite(context)`.
+- **Prompt injection is reduced, not eliminated.** See
+  [Untrusted content](#untrusted-content).
 - **`onLiveWrite` may run more than once** for the same translation when two status polls
   overlap; see [Live writes and `onLiveWrite`](#live-writes-and-onlivewrite).
 - **Fixed names.** The records collection is always `translation-records`, the endpoints
