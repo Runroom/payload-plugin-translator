@@ -229,7 +229,7 @@ The checks run in this order:
 | 403    | `{ "error": "forbidden" }`            | The user cannot update the document or global in one of the target locales.                                                                                                                                                  |
 | 409    | `{ "error": "busy", "busy": ["es"] }` | Another request holds the document's lock: a translation is queued or running. The lock is per document, not per locale; `busy` lists the locales with a pending record, or the requested targets when none is recorded yet. |
 | 500    | `{ "error": "failed" }`               | The records or the job could not be saved. Nothing was queued and the lock was released, so the request can simply be repeated.                                                                                              |
-| 202    | `{ "queued": ["es", "ca"] }`          | The lock was taken, the records set to `queued` and the job queued and started.                                                                                                                                              |
+| 202    | `{ "queued": ["es", "ca"] }`          | The lock was taken, the records set to `queued` and the job queued. It starts right away unless `runOnRequest` is `false`, in which case your queue runner starts it.                                                        |
 
 Targets that are not locales of the entity, and the source itself, are dropped as long as
 one valid target remains.
