@@ -1,4 +1,4 @@
-import type { Block, PayloadRequest } from 'payload'
+import type { Block, PayloadRequest, SanitizedFieldsPermissions } from 'payload'
 
 import { countChanged, countMissing } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
@@ -115,9 +115,14 @@ const localeStatus = ({
 type Reader = (args: { locale: string; withFallback: boolean }) => Promise<Translatables>
 
 const readerOf =
-  (entity: Entity, blocks: Block[]): Reader =>
+  (entity: Entity, blocks: Block[], permissions: SanitizedFieldsPermissions): Reader =>
   async args =>
-    collectTranslatables({ fields: entity.fields, data: await entity.read(args), blocks })
+    collectTranslatables({
+      fields: entity.fields,
+      data: await entity.read(args),
+      blocks,
+      permissions,
+    })
 
 // Each finished locale is compared with the text of the locale it was translated from,
 // which is read only once even if several share it; the target is read without fallback so
@@ -182,14 +187,15 @@ export const buildStatus = async ({
   if (!doc) return null
   // Without the right to read the document, no status either: for the requester, it does
   // not exist.
-  if (!(await docPermissions({ req, ref })).read) return null
+  const permissions = await docPermissions({ req, ref })
+  if (!permissions.read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')
   // With read permission already checked: the versions are read with the Local API's
   // access, like the document itself.
   const [{ sourceOf, targets }, lastPublishedAt] = await Promise.all([
     readComparisons({
-      read: readerOf(entity, payload.config.blocks ?? []),
+      read: readerOf(entity, payload.config.blocks ?? [], permissions.fields),
       done,
       defaultLocale,
     }),

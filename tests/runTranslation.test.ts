@@ -87,6 +87,55 @@ const input = {
 }
 
 describe('runTranslation', () => {
+  it('does not send or write denied fields and preserves their previous hashes', async () => {
+    const previousSubtitle = { source: 'previous-source', output: 'previous-output' }
+    const { payload, update, records } = fakePayload({
+      docs: {
+        es: { id: 'e1', title: 'Curso', subtitle: 'Secreto' },
+        ca: { id: 'e1', title: null, subtitle: null },
+      },
+      record: { status: 'done', fields: { subtitle: previousSubtitle } },
+    })
+    const translate = vi.fn(fakeProvider().translate)
+
+    await runTranslation({
+      isLastAttempt: true,
+      payload,
+      input: { ...input, fieldPermissions: { title: true } },
+      settings: { ...settings, provider: { translate } },
+    })
+
+    expect(translate).toHaveBeenCalledTimes(1)
+    expect(Object.values(translate.mock.calls[0]![0].units)).toEqual(['Curso'])
+    expect(update.mock.calls[0]![0].data).toEqual({ title: '[ca] Curso' })
+    expect(records.mock.calls.at(-1)![0].data.fields).toMatchObject({
+      subtitle: previousSubtitle,
+      title: expect.any(Object),
+    })
+  })
+
+  it('drops the hashes of paths that no longer exist even with field permissions', async () => {
+    const gone = { source: 'gone-source', output: 'gone-output' }
+    const { payload, records } = fakePayload({
+      docs: {
+        es: { id: 'e1', title: 'Curso' },
+        ca: { id: 'e1', title: null },
+      },
+      record: { status: 'done', fields: { 'agenda.days.d9.label': gone } },
+    })
+
+    await runTranslation({
+      isLastAttempt: true,
+      payload,
+      input: { ...input, fieldPermissions: { title: true } },
+      settings,
+    })
+
+    expect(records.mock.calls.at(-1)![0].data.fields).not.toHaveProperty(
+      'agenda.days.d9.label',
+    )
+  })
+
   it('writes the translation as a draft in the target locale with the translator context', async () => {
     const { payload, update } = fakePayload({
       docs: {

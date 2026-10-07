@@ -21,7 +21,8 @@ First release.
   unpublished drafts), retries and notices, in English and Spanish, with English as the
   fallback for any other admin language; `translatorTranslations` exports the catalogs.
 - Endpoints `POST /api/translator/translate` and `GET /api/translator/status`, guarded by
-  the plugin's `access` and by the document's own read and update access.
+  the plugin's `access`, the document's own read and update access, and field-level read
+  and update access for translated fields.
 - The `translation-records` collection and the `translateDocument` job task, with retries
   and per-document concurrency control.
 - `onLiveWrite`, to revalidate the public site after a translation of an entity without

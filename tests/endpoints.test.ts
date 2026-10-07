@@ -11,8 +11,12 @@ import type { TranslatorSettings } from '../src/server/settings.js'
 // them.
 vi.mock('payload', async importOriginal => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  docAccessOperation: vi.fn(async () => ({ fields: {}, read: true, update: true })),
-  docAccessOperationGlobal: vi.fn(async () => ({ fields: {}, read: true, update: true })),
+  docAccessOperation: vi.fn(async () => ({ fields: true, read: true, update: true })),
+  docAccessOperationGlobal: vi.fn(async () => ({
+    fields: true,
+    read: true,
+    update: true,
+  })),
 }))
 
 const settings = (overrides: Partial<TranslatorSettings> = {}): TranslatorSettings => ({
@@ -198,6 +202,7 @@ describe('POST /translator/translate', () => {
         sourceLocale: 'es',
         targetLocales: ['ca', 'en'],
         overwriteEdited: false,
+        fieldPermissions: true,
       },
     })
     expect(run).toHaveBeenCalledWith({
@@ -209,6 +214,27 @@ describe('POST /translator/translate', () => {
       expect.objectContaining({ targetLocale: 'ca', status: 'queued' }),
       expect.objectContaining({ targetLocale: 'en', status: 'queued' }),
     ])
+  })
+
+  it('queues the request user’s field permissions from the document access result', async () => {
+    const fields = { title: { read: true, update: true } }
+    vi.mocked(docAccessOperation).mockResolvedValueOnce({
+      fields,
+      read: true,
+      update: true,
+    } as never)
+    const { req, queue } = request({
+      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+    })
+
+    await endpoint(settings(), '/translator/translate')(req)
+
+    expect(docAccessOperation).toHaveBeenCalledTimes(1)
+    expect(queue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ fieldPermissions: fields }),
+      }),
+    )
   })
 
   it('answers 409 when another locale of the same document is busy', async () => {
@@ -428,6 +454,26 @@ describe('POST /translator/translate', () => {
 })
 
 describe('GET /translator/status', () => {
+  it('does not report fields the requester cannot update as stale', async () => {
+    vi.mocked(docAccessOperation).mockResolvedValueOnce({
+      fields: { title: { read: true } },
+      read: true,
+      update: true,
+    } as never)
+    const { req } = request({
+      query: 'collection=events&id=e1',
+      records: [
+        { ...recent('ca', 'done'), fields: { title: { source: 'old', output: 'old' } } },
+      ],
+      docsByLocale: { ca: { id: 'e1', title: null } },
+    })
+
+    const response = await endpoint(settings(), '/translator/status')(req)
+    const body = await response.json()
+
+    expect(body.locales[1]).toMatchObject({ stale: false, changed: 0, missing: 0 })
+  })
+
   it('rejects users the access function denies', async () => {
     const { req } = request({ query: 'collection=events&id=e1' })
 
@@ -667,6 +713,7 @@ describe('translator endpoints for a global', () => {
           sourceLocale: 'es',
           targetLocales: ['ca'],
           overwriteEdited: false,
+          fieldPermissions: true,
         },
       }),
     )

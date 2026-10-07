@@ -1,4 +1,9 @@
-import type { Block, Field } from 'payload'
+import type {
+  Block,
+  Field,
+  SanitizedFieldPermissions,
+  SanitizedFieldsPermissions,
+} from 'payload'
 import { fieldAffectsData, tabHasName } from 'payload/shared'
 
 import type { PathSegment, TranslatableKind, TranslatableValue } from './types.js'
@@ -15,7 +20,21 @@ type WalkArgs = {
   data: Row | undefined
   segments: PathSegment[]
   context: WalkContext
+  permissions: SanitizedFieldsPermissions
 }
+
+const entryOf = (
+  permissions: SanitizedFieldsPermissions,
+  name: string,
+): SanitizedFieldPermissions | undefined =>
+  permissions === true ? true : permissions[name]
+
+const canTranslate = (entry: SanitizedFieldPermissions | undefined): boolean =>
+  entry === true || (entry?.read === true && entry.update === true)
+
+const childrenOf = (
+  entry: SanitizedFieldPermissions | undefined,
+): SanitizedFieldsPermissions => (entry === true ? true : (entry?.fields ?? {}))
 
 const asRow = (value: unknown): Row | undefined =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -44,14 +63,18 @@ const walkRows = ({
   rows,
   key,
   fieldsFor,
+  permissionsFor,
   segments,
   context,
+  permissions,
 }: {
   rows: Row[]
   key: string
   fieldsFor: (row: Row) => Field[] | undefined
+  permissionsFor?: (row: Row) => SanitizedFieldsPermissions
   segments: PathSegment[]
   context: WalkContext
+  permissions: SanitizedFieldsPermissions
 }): void => {
   for (const row of rows) {
     const rowFields = fieldsFor(row)
@@ -61,6 +84,7 @@ const walkRows = ({
       data: row,
       segments: [...segments, { key, rowId: String(row.id) }],
       context,
+      permissions: permissionsFor?.(row) ?? permissions,
     })
   }
 }
@@ -70,69 +94,135 @@ type VisitArgs = {
   data: Row | undefined
   segments: PathSegment[]
   context: WalkContext
+  permissions: SanitizedFieldsPermissions
 }
 
-const visitTabs = ({ field, data, segments, context }: VisitArgs): void => {
+const visitTabs = ({ field, data, segments, context, permissions }: VisitArgs): void => {
   if (field.type !== 'tabs') return
   for (const tab of field.tabs) {
     const named = tabHasName(tab)
+    const entry = named ? entryOf(permissions, tab.name) : true
+    if (!canTranslate(entry)) continue
     walk({
       fields: tab.fields,
       data: named ? asRow(data?.[tab.name]) : data,
       segments: named ? [...segments, { key: tab.name }] : segments,
       context,
+      permissions: named ? childrenOf(entry) : permissions,
     })
   }
 }
 
-const visitLayout = ({ field, data, segments, context }: VisitArgs): boolean => {
+const visitLayout = ({
+  field,
+  data,
+  segments,
+  context,
+  permissions,
+}: VisitArgs): boolean => {
   if (field.type === 'tabs') {
-    visitTabs({ field, data, segments, context })
+    visitTabs({ field, data, segments, context, permissions })
     return true
   }
   if (field.type === 'row' || field.type === 'collapsible') {
-    walk({ fields: field.fields, data, segments, context })
+    walk({ fields: field.fields, data, segments, context, permissions })
     return true
   }
   if (field.type === 'group' && !('name' in field && field.name)) {
-    walk({ fields: field.fields, data, segments, context })
+    walk({ fields: field.fields, data, segments, context, permissions })
     return true
   }
   return false
 }
 
-const visitContainer = ({ field, data, segments, context }: VisitArgs): boolean => {
-  if (field.type === 'group' && 'name' in field) {
-    walk({
-      fields: field.fields,
-      data: asRow(data?.[field.name]),
-      segments: [...segments, { key: field.name }],
-      context,
-    })
+const visitBlocks = ({
+  field,
+  data,
+  segments,
+  context,
+  entry,
+}: VisitArgs & {
+  field: Field & { type: 'blocks' }
+  entry: SanitizedFieldPermissions
+}): void => {
+  const available = blocksOf(field, context.blocks)
+  const blockPermissions = entry === true ? true : entry.blocks
+  walkRows({
+    rows: asRows(data?.[field.name]),
+    key: field.name,
+    fieldsFor: row => available.find(block => block.slug === row.blockType)?.fields,
+    permissionsFor: row => {
+      const block =
+        blockPermissions === true ? true : blockPermissions?.[String(row.blockType)]
+      return block === true ? true : (block?.fields ?? {})
+    },
+    segments,
+    context,
+    permissions: childrenOf(entry),
+  })
+}
+
+const visitArray = ({
+  field,
+  data,
+  segments,
+  context,
+  entry,
+}: VisitArgs & {
+  field: Field & { type: 'array' }
+  entry: SanitizedFieldPermissions
+}): void => {
+  walkRows({
+    rows: asRows(data?.[field.name]),
+    key: field.name,
+    fieldsFor: () => field.fields,
+    segments,
+    context,
+    permissions: childrenOf(entry),
+  })
+}
+
+const visitGroup = ({
+  field,
+  data,
+  segments,
+  context,
+  entry,
+}: VisitArgs & {
+  field: Field & { type: 'group'; name: string }
+  entry: SanitizedFieldPermissions
+}): void => {
+  walk({
+    fields: field.fields,
+    data: asRow(data?.[field.name]),
+    segments: [...segments, { key: field.name }],
+    context,
+    permissions: childrenOf(entry),
+  })
+}
+
+const visitContainer = ({
+  field,
+  data,
+  segments,
+  context,
+  permissions,
+}: VisitArgs): boolean => {
+  if (field.type !== 'group' && field.type !== 'array' && field.type !== 'blocks')
+    return false
+  if (!('name' in field) || typeof field.name !== 'string') return false
+  const entry = entryOf(permissions, field.name)
+  if (!entry || !canTranslate(entry)) return true
+  if (field.type === 'group') {
+    visitGroup({ field, data, segments, context, permissions, entry })
     return true
   }
   if (field.type === 'array') {
-    walkRows({
-      rows: asRows(data?.[field.name]),
-      key: field.name,
-      fieldsFor: () => field.fields,
-      segments,
-      context,
-    })
+    visitArray({ field, data, segments, context, permissions, entry })
     return true
   }
-  if (field.type === 'blocks') {
-    const available = blocksOf(field, context.blocks)
-    walkRows({
-      rows: asRows(data?.[field.name]),
-      key: field.name,
-      fieldsFor: row => available.find(block => block.slug === row.blockType)?.fields,
-      segments,
-      context,
-    })
-    return true
-  }
-  return false
+  visitBlocks({ field, data, segments, context, permissions, entry })
+  return true
 }
 
 const kindOf = (field: Field): TranslatableKind | undefined => {
@@ -141,8 +231,15 @@ const kindOf = (field: Field): TranslatableKind | undefined => {
   return 'hasMany' in field && field.hasMany ? undefined : 'text'
 }
 
-const visitLocalized = ({ field, data, segments, context }: VisitArgs): void => {
+const visitLocalized = ({
+  field,
+  data,
+  segments,
+  context,
+  permissions,
+}: VisitArgs): void => {
   if (!fieldAffectsData(field) || !field.localized) return
+  if (!canTranslate(entryOf(permissions, field.name))) return
   const kind = kindOf(field)
   if (!kind) return
   const here = [...segments, { key: field.name }]
@@ -154,16 +251,22 @@ const visitLocalized = ({ field, data, segments, context }: VisitArgs): void => 
   })
 }
 
-const visitDataField = ({ field, data, segments, context }: VisitArgs): void => {
+const visitDataField = ({
+  field,
+  data,
+  segments,
+  context,
+  permissions,
+}: VisitArgs): void => {
   if (!fieldAffectsData(field) || isExcluded(field)) return
-  if (visitContainer({ field, data, segments, context })) return
-  visitLocalized({ field, data, segments, context })
+  if (visitContainer({ field, data, segments, context, permissions })) return
+  visitLocalized({ field, data, segments, context, permissions })
 }
 
-const walk = ({ fields, data, segments, context }: WalkArgs): void => {
+const walk = ({ fields, data, segments, context, permissions }: WalkArgs): void => {
   for (const field of fields) {
-    if (!visitLayout({ field, data, segments, context })) {
-      visitDataField({ field, data, segments, context })
+    if (!visitLayout({ field, data, segments, context, permissions })) {
+      visitDataField({ field, data, segments, context, permissions })
     }
   }
 }
@@ -172,13 +275,15 @@ export const collectTranslatables = ({
   fields,
   data,
   blocks = [],
+  permissions = true,
 }: {
   fields: Field[]
   data: unknown
   blocks?: Block[]
+  permissions?: SanitizedFieldsPermissions
 }): TranslatableValue[] => {
   const context: WalkContext = { blocks, out: [] }
-  walk({ fields, data: asRow(data), segments: [], context })
+  walk({ fields, data: asRow(data), segments: [], context, permissions })
   return context.out
 }
 

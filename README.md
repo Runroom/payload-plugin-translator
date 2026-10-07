@@ -167,10 +167,13 @@ reads and writes it.
 
 The job writes through the **Local API with its default `overrideAccess`** and **without a
 user**, because it runs outside the request that queued it; the permission checks above
-happen before queueing. Every write it makes to your documents carries its own request
-`context` (`TRANSLATOR_WRITE_CONTEXT`); use `isTranslatorWrite(context)` in your hooks to
-tell its writes apart, for example to skip revalidating the public site on a draft write,
-or to keep a sync from claiming a field the translator wrote.
+happen before queueing. The requesting user's field-level **read and update** permissions
+are snapshotted when the job is queued; fields missing either permission are not sent to
+the provider, written, or counted in status, and their previous fingerprints are kept.
+Every write it makes to your documents carries its own request `context`
+(`TRANSLATOR_WRITE_CONTEXT`); use `isTranslatorWrite(context)` in your hooks to tell its
+writes apart, for example to skip revalidating the public site on a draft write, or to
+keep a sync from claiming a field the translator wrote.
 
 ## Endpoints
 
