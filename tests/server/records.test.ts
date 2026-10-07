@@ -6,7 +6,7 @@ import {
   RECORDS_SLUG,
   recordsCollection,
   saveRecord,
-} from '../src/server/records.js'
+} from '../../src/server/records.js'
 
 const key = {
   entityType: 'collection' as const,

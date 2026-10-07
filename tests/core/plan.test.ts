@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { fingerprint, fingerprintOf } from '../src/core/fingerprint.js'
-import { countChanged, countMissing, planTranslation } from '../src/core/plan.js'
-import type { TranslatableValue } from '../src/core/types.js'
-import { unitsOf } from '../src/core/units.js'
+import { fingerprint, fingerprintOf } from '../../src/core/fingerprint.js'
+import { countChanged, countMissing, planTranslation } from '../../src/core/plan.js'
+import type { TranslatableValue } from '../../src/core/types.js'
+import { unitsOf } from '../../src/core/units.js'
 
 const field = (path: string, value: unknown): TranslatableValue => ({
   path,

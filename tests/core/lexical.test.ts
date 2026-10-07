@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { LexicalNode, LexicalState } from '../src/core/lexical.js'
+import type { LexicalNode, LexicalState } from '../../src/core/lexical.js'
 import {
   extractContainers,
   hasNonTextContent,
@@ -8,8 +8,8 @@ import {
   MarkError,
   replaceContainers,
   structureOf,
-} from '../src/core/lexical.js'
-import { marksMatch } from '../src/core/marks.js'
+} from '../../src/core/lexical.js'
+import { marksMatch } from '../../src/core/marks.js'
 
 const text = (value: string, format = 0): LexicalNode => ({
   type: 'text',
