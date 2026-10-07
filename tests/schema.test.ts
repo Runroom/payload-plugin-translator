@@ -1,4 +1,4 @@
-import type { Block, Field } from 'payload'
+import type { Block, Field, SanitizedFieldsPermissions } from 'payload'
 import { describe, expect, it } from 'vitest'
 
 import { collectTranslatables, findLocalizedContainers } from '../src/core/schema.js'
@@ -76,6 +76,89 @@ const data = {
 }
 
 describe('collectTranslatables', () => {
+  const pathsWith = (permissions: SanitizedFieldsPermissions): string[] =>
+    collectTranslatables({ fields, data, permissions }).map(value => value.path)
+
+  it('accepts true permissions for every translatable field', () => {
+    expect(pathsWith(true)).toEqual(
+      collectTranslatables({ fields, data }).map(value => value.path),
+    )
+  })
+
+  it('skips a denied leaf and a read-only leaf', () => {
+    expect(pathsWith({ title: { read: true } } as never)).toEqual([])
+    expect(pathsWith({ title: true })).toEqual(['title'])
+  })
+
+  it('skips denied groups and arrays', () => {
+    expect(
+      pathsWith({ agenda: { read: true, update: true, fields: {} } } as never),
+    ).toEqual([])
+    expect(
+      pathsWith({
+        agenda: { read: true, update: true, fields: { days: { read: true } } },
+      } as never),
+    ).toEqual([])
+  })
+
+  it('passes permissions through unnamed rows and collapsibles', () => {
+    const paths = collectTranslatables({
+      fields: [
+        { type: 'row', fields: [{ name: 'title', type: 'text', localized: true }] },
+        {
+          type: 'collapsible',
+          label: 'More',
+          fields: [{ name: 'subtitle', type: 'text', localized: true }],
+        },
+      ],
+      data: { title: 'Hola', subtitle: 'Sub' },
+      permissions: { title: true },
+    }).map(value => value.path)
+    expect(paths).toEqual(['title'])
+  })
+
+  it('steps into a named tab permission entry', () => {
+    expect(
+      pathsWith({
+        meta: { read: true, update: true, fields: { description: true } },
+      } as never),
+    ).toEqual(['meta.description'])
+  })
+
+  it('checks permissions for each block slug', () => {
+    const paths = collectTranslatables({
+      fields: [
+        {
+          name: 'layout',
+          type: 'blocks',
+          blocks: [
+            {
+              slug: 'hero',
+              fields: [{ name: 'heading', type: 'text', localized: true }],
+            },
+            { slug: 'quote', fields: [{ name: 'text', type: 'text', localized: true }] },
+            { slug: 'card', fields: [{ name: 'label', type: 'text', localized: true }] },
+          ],
+        },
+      ],
+      data: {
+        layout: [
+          { id: 'h1', blockType: 'hero', heading: 'Hola' },
+          { id: 'q1', blockType: 'quote', text: 'Cita' },
+          { id: 'c1', blockType: 'card', label: 'Tarjeta' },
+        ],
+      },
+      permissions: {
+        layout: {
+          read: true,
+          update: true,
+          blocks: { hero: true, quote: { fields: { text: true } } },
+        },
+      } as never,
+    }).map(value => value.path)
+    expect(paths).toEqual(['layout.h1.heading', 'layout.q1.text'])
+  })
+
   it('finds localized text, textarea and richText fields at any depth', () => {
     const paths = collectTranslatables({ fields, data }).map(value => value.path)
 

@@ -35,6 +35,7 @@ export const translateTask = (settings: TranslatorSettings): TaskConfig =>
       { name: 'sourceLocale', type: 'text' },
       { name: 'targetLocales', type: 'json', required: true },
       { name: 'overwriteEdited', type: 'checkbox' },
+      { name: 'fieldPermissions', type: 'json' },
     ],
     retries: RETRIES,
     handler: async ({

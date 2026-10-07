@@ -1,4 +1,4 @@
-import type { Endpoint, PayloadRequest } from 'payload'
+import type { Endpoint, PayloadRequest, SanitizedFieldsPermissions } from 'payload'
 
 import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
@@ -55,11 +55,13 @@ const queueTranslations = async ({
   settings,
   body,
   targets,
+  fieldPermissions,
 }: {
   req: PayloadRequest
   settings: TranslatorSettings
   body: TranslateBody
   targets: string[]
+  fieldPermissions: SanitizedFieldsPermissions
 }): Promise<{ recordsSaved: boolean }> => {
   // The job goes before the records: a `queued` record without a job would lock the
   // document with 409 until it expires.
@@ -71,6 +73,7 @@ const queueTranslations = async ({
       sourceLocale: body.sourceLocale,
       targetLocales: targets,
       overwriteEdited: body.overwriteEdited,
+      fieldPermissions,
     } as never,
   })) as unknown as { id: string | number }
   // If the records fail, the job already exists: it is run anyway, because it sets them to
@@ -148,19 +151,20 @@ const resolveTargets = (
 
 // Without read access the document does not exist for the requester; without update
 // access, the request is denied: translating writes to it (and, without drafts, publishes).
-const refuseDocument = async ({
+// Allowed, it answers the requester's field permissions, which the job honours.
+const checkDocument = async ({
   req,
   body,
 }: {
   req: PayloadRequest
   body: TranslateBody
-}): Promise<Response | null> => {
+}): Promise<Response | SanitizedFieldsPermissions> => {
   if (!(await entityExists({ req, ref: body.ref, locale: body.sourceLocale })))
     return json({ error: 'not-found' }, 404)
   const permissions = await docPermissions({ req, ref: body.ref })
   if (!permissions.read) return json({ error: 'not-found' }, 404)
   if (!permissions.update) return json({ error: 'forbidden' }, 403)
-  return null
+  return permissions.fields
 }
 
 const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
@@ -176,8 +180,8 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     if (!settings.provider) return json({ error: 'not-configured' }, 503)
     const targets = resolveTargets(settings, body)
     if (!Array.isArray(targets)) return targets
-    const refused = await refuseDocument({ req, body })
-    if (refused) return refused
+    const fieldPermissions = await checkDocument({ req, body })
+    if (fieldPermissions instanceof Response) return fieldPermissions
 
     const records = await findRecords(req.payload, body.ref)
     // The lock is per document, not per locale: two jobs for the same document at once
@@ -185,7 +189,13 @@ const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
     const busy = records.filter(isBusy).map(item => item.targetLocale)
     if (busy.length > 0) return json({ error: 'busy', busy }, 409)
 
-    const { recordsSaved } = await queueTranslations({ req, settings, body, targets })
+    const { recordsSaved } = await queueTranslations({
+      req,
+      settings,
+      body,
+      targets,
+      fieldPermissions,
+    })
     if (!recordsSaved) return json({ error: 'records-failed', queued: targets }, 500)
     return json({ queued: targets }, 202)
   },

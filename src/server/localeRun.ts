@@ -1,4 +1,4 @@
-import type { Payload } from 'payload'
+import type { Payload, SanitizedFieldsPermissions } from 'payload'
 
 import type { FieldWrite } from '../core/apply.js'
 import { buildUpdateData } from '../core/apply.js'
@@ -19,6 +19,7 @@ export type TranslationJobInput = EntityRef & {
   sourceLocale: string
   targetLocales: string[]
   overwriteEdited: boolean
+  fieldPermissions?: SanitizedFieldsPermissions
 }
 
 const unitIdsOf = (value: TranslatableValue): [string, string][] => {
@@ -103,12 +104,35 @@ const translatePlan = async ({
 const translatablesOf = (
   run: LocaleRun,
   doc: Record<string, unknown>,
+  { restricted = true }: { restricted?: boolean } = {},
 ): TranslatableValue[] =>
   collectTranslatables({
     fields: run.entity.fields,
     data: doc,
     blocks: run.payload.config.blocks ?? [],
+    permissions: restricted ? run.input.fieldPermissions : true,
   })
+
+// A field the requester may not touch is left out of the plan, but it still exists: its
+// fingerprints stay, or the next request by someone who may touch it would take its text
+// for a hand edit. Paths that no longer exist (a removed row) are dropped as before.
+const keepHiddenHashes = ({
+  run,
+  sourceDoc,
+  plan,
+  previous,
+}: {
+  run: LocaleRun
+  sourceDoc: Record<string, unknown>
+  plan: { hashes: FieldHashes }
+  previous: FieldHashes
+}): void => {
+  if (run.input.fieldPermissions === undefined) return
+  for (const { path } of translatablesOf(run, sourceDoc, { restricted: false })) {
+    const hashes = previous[path]
+    if (hashes && !(path in plan.hashes)) plan.hashes[path] = hashes
+  }
+}
 
 // The `output` fingerprint comes from what Payload saved, not from what was sent: a
 // `beforeChange` hook that normalizes the value (a `formatSlug`) would leave the
@@ -227,6 +251,7 @@ export const execute = async (
     previous,
     overwriteEdited: input.overwriteEdited,
   })
+  keepHiddenHashes({ run, sourceDoc, plan, previous })
   if (plan.translate.length === 0) {
     return { hashes: plan.hashes, kept: plan.kept, translated: false }
   }
