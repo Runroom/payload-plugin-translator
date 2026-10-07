@@ -12,7 +12,14 @@ import { AccessDeniedError } from '../../../src/server/errors.js'
 import { RECORDS_SLUG } from '../../../src/server/records.js'
 import { MISSING_REQUESTER, runTranslation } from '../../../src/server/runTranslation.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
-import { fakePayload, settings, input, statefulPayload, userOf } from './helpers.js'
+import {
+  fakePayload,
+  fields,
+  settings,
+  input,
+  statefulPayload,
+  userOf,
+} from './helpers.js'
 import type { Docs } from './helpers.js'
 
 // The job checks the requester's document access through Payload, which reads the
@@ -401,6 +408,31 @@ describe('runTranslation', () => {
     )
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ collection: 'events', overrideAccess: false, user }),
+    )
+  })
+
+  it('loads the requester as Payload binds `req.user`: at the auth depth, with collection and strategy', async () => {
+    const { payload } = fakePayload({
+      ...pending,
+      collections: {
+        events: { config: { fields, versions: { drafts: { autosave: false } } } },
+        users: { config: { auth: { depth: 1 } } },
+      },
+    })
+
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+
+    expect(payload.findByID).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'users', id: 'u1', depth: 1 }),
+    )
+    expect(requesterPermissions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: expect.objectContaining({
+          id: 'u1',
+          collection: 'users',
+          _strategy: 'local-jwt',
+        }),
+      }),
     )
   })
 

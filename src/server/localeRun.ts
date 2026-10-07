@@ -244,7 +244,14 @@ const commitTranslation = async ({
     })
     let outcome = unchanged(plan)
     if (written !== null) {
-      const hashes = hashesOf({ plan, writes, written, before, run })
+      const hashes = hashesOf({
+        plan,
+        writes,
+        written,
+        before,
+        previous: previous.fields,
+        run,
+      })
       await verifyWrite({ run, hashes, previous: previous.fields, transactionID })
       outcome = {
         hashes: { ...plan.hashes, ...hashes },
@@ -274,7 +281,13 @@ export const execute = async (
     sourceLocale,
     previousSourceLocale: previous.sourceLocale,
   })
-  keepHiddenHashes({ run, sourceDoc, plan, previous: previous.fields })
+  keepHiddenHashes({
+    run,
+    sourceDoc,
+    plan,
+    previous: previous.fields,
+    previousSourceLocale: previous.sourceLocale,
+  })
   if (plan.translate.length === 0) {
     const outcome = unchanged(plan)
     await save(outcome, undefined)

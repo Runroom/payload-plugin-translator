@@ -2,13 +2,17 @@ import type { TypedUser } from 'payload'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { provider } from '../../dev/payload.config.js'
+import type { StatusResponse } from '../../src/index.js'
 import { MISSING_REQUESTER } from '../../src/server/runTranslation.js'
 import type { Harness } from './helpers.js'
 import {
   boot,
+  callEndpoint,
   findRecord,
+  localeStatus,
   QUEUE,
   shutdown,
+  status,
   translate,
   translateAndWait,
 } from './helpers.js'
@@ -63,6 +67,25 @@ describe('translating as the requester under access rules', () => {
       fallbackLocale: false as never,
       depth: 0,
     })) as unknown as Record<string, unknown>
+
+  const createRole = async (slug: string): Promise<string | number> =>
+    (
+      await harness.payload.create({
+        collection: 'roles' as never,
+        data: { slug, title: slug } as never,
+      })
+    ).id
+
+  // Rewrites the rows in `en`; `locked` is not localized, so it applies to every locale.
+  const setRows = async (id: string, rows: Items): Promise<void> => {
+    await harness.payload.update({
+      collection: 'guarded' as never,
+      id,
+      locale: 'en',
+      draft: true,
+      data: { items: rows },
+    } as never)
+  }
 
   const sentTexts = (): string[] =>
     sent.mock.calls.flatMap(([request]) => Object.values(request.units))
@@ -143,6 +166,75 @@ describe('translating as the requester under access rules', () => {
     })
   })
 
+  it('translates a row again once it is unlocked, and reports it stale while it is locked', async () => {
+    const id = await createDoc({ title: 'Relock', items: [{ text: 'Open' }] })
+    const body = { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] }
+    await translateAndWait(harness, body)
+    const [row] = (await readDraft(id, 'en')).items as Items
+    if (!row) throw new Error('The row was not created')
+    expect((await readDraft(id, 'es')).items).toMatchObject([{ text: '[es] Open' }])
+
+    // The row is locked and its source changes: the write is refused, the row keeps our
+    // earlier translation and the locale is stale, not up to date with the new source.
+    await setRows(id, [{ ...row, text: 'Open again', locked: true }])
+    await translateAndWait(harness, body)
+    expect((await readDraft(id, 'es')).items).toMatchObject([{ text: '[es] Open' }])
+    const record = await findRecord(harness, { docId: id, targetLocale: 'es' })
+    expect(record?.kept).toEqual([`items.${row.id}.text`])
+    expect(
+      localeStatus(await status(harness, { collection: 'guarded', id }), 'es'),
+    ).toMatchObject({ state: 'done', stale: true, changed: 1, kept: 1 })
+
+    // Unlocked, the row still counts as ours: the next run translates it without
+    // `overwriteEdited`.
+    await setRows(id, [{ ...row, text: 'Open again', locked: false }])
+    await translateAndWait(harness, body)
+    expect((await readDraft(id, 'es')).items).toMatchObject([{ text: '[es] Open again' }])
+    expect(
+      localeStatus(await status(harness, { collection: 'guarded', id }), 'es'),
+    ).toMatchObject({ state: 'done', stale: false, changed: 0, kept: 0 })
+  })
+
+  it('reports a locale the requester cannot read without comparison data', async () => {
+    const id = await createDoc({ title: 'Partly visible' })
+    await translateAndWait(harness, {
+      collection: 'guarded',
+      id,
+      sourceLocale: 'en',
+      targetLocales: ['es'],
+    })
+    await harness.payload.update({
+      collection: 'guarded' as never,
+      id,
+      locale: 'en',
+      draft: true,
+      data: { title: 'Partly visible, changed' },
+    } as never)
+    expect(
+      localeStatus(await status(harness, { collection: 'guarded', id }), 'es'),
+    ).toMatchObject({ state: 'done', stale: true, changed: 1 })
+
+    // `es` is hidden from this user; `en` is not, so the status is still served.
+    const user = await createUser({
+      email: 'reader@example.com',
+      roles: [await createRole('no-es')],
+    })
+    const reply = await callEndpoint<StatusResponse>(harness, {
+      method: 'get',
+      path: '/translator/status',
+      user,
+      query: { collection: 'guarded', id },
+    })
+
+    expect(reply.status).toBe(200)
+    expect(localeStatus(reply, 'es')).toMatchObject({
+      state: 'done',
+      stale: false,
+      changed: 0,
+      missing: 0,
+    })
+  })
+
   it('never sends or writes a field the requester may not read', async () => {
     const id = await createDoc({ title: 'Public', secretNote: 'Top secret' })
 
@@ -180,6 +272,51 @@ describe('translating as the requester under access rules', () => {
     })
     expect(sent).not.toHaveBeenCalled()
     expect((await readDraft(id, 'es')).title).toBeFalsy()
+  })
+
+  // The `guarded` update rule only sees a viewer when the roles are populated, as Payload
+  // binds `req.user` (`auth.depth`); loaded at depth 0 the job would translate anyway.
+  it('fails with "Access denied" when the requester becomes a viewer before the job runs', async () => {
+    const id = await createDoc({ title: 'Viewer' })
+    const user = await createUser({ email: 'viewer@example.com' })
+    await queueOnly(
+      { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] },
+      user,
+    )
+    await harness.payload.update({
+      collection: 'users',
+      id: user.id,
+      data: { roles: [await createRole('viewer')] } as never,
+    })
+
+    await runQueueOnce()
+
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      status: 'failed',
+      error: 'Access denied',
+    })
+    expect(sent).not.toHaveBeenCalled()
+    expect((await readDraft(id, 'es')).title).toBeFalsy()
+  })
+
+  it('translates for a requester whose populated roles allow it', async () => {
+    const id = await createDoc({ title: 'Writer' })
+    const user = await createUser({
+      email: 'writer@example.com',
+      roles: [await createRole('writer')],
+    })
+    await queueOnly(
+      { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] },
+      user,
+    )
+
+    await runQueueOnce()
+
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      status: 'done',
+      error: null,
+    })
+    expect((await readDraft(id, 'es')).title).toBe('[es] Writer')
   })
 
   it('fails when the requester was deleted before the job runs', async () => {

@@ -39,7 +39,10 @@ const decide = ({
 }
 
 // Without both locales the source counts as the same.
-const isSameSource = (sourceLocale?: string, previousSourceLocale?: string): boolean =>
+export const isSameSource = (
+  sourceLocale?: string,
+  previousSourceLocale?: string,
+): boolean =>
   sourceLocale === undefined ||
   previousSourceLocale === undefined ||
   sourceLocale === previousSourceLocale
