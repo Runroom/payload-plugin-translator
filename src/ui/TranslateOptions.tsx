@@ -24,9 +24,7 @@ export const TranslateOptions = ({
   const baseId = useId()
   return (
     <fieldset className="rr-translator__section">
-      <legend className="rr-translator__section-title">
-        {t('translator:options' as never)}
-      </legend>
+      <legend className="rr-translator__section-title">{t('translator:options')}</legend>
       {definitions.map(option => {
         const inputId = `${baseId}-${option.id}`
         const hintId = `${inputId}-hint`
@@ -41,10 +39,10 @@ export const TranslateOptions = ({
               onChange={event => onChange(option.id, event.target.checked)}
             />
             <label htmlFor={inputId} className="rr-translator__option-label">
-              {t(option.labelKey as never)}
+              {t(option.labelKey)}
             </label>
             <p id={hintId} className="rr-translator__hint">
-              {t(option.hintKey as never)}
+              {t(option.hintKey)}
             </p>
           </div>
         )

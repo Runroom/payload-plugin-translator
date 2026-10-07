@@ -38,19 +38,17 @@ const ReadyNotice = ({ canReload, t }: Pick<Props, 'canReload' | 't'>): ReactEle
     tone="warning"
     icon="warning"
     srText={t(
-      (canReload
-        ? 'translator:readyThisLocale'
-        : 'translator:readyNestedThisLocale') as never,
+      canReload ? 'translator:readyThisLocale' : 'translator:readyNestedThisLocale',
     )}
     action={
       canReload ? (
         <Button buttonStyle="secondary" size="small" margin={false} onClick={reloadPage}>
-          {t('translator:reload' as never)}
+          {t('translator:reload')}
         </Button>
       ) : null
     }
   >
-    {t((canReload ? 'translator:readyShort' : 'translator:readyNestedShort') as never)}
+    {t(canReload ? 'translator:readyShort' : 'translator:readyNestedShort')}
   </Notice>
 )
 
@@ -70,9 +68,7 @@ const StaleNotice = ({
       tone="warning"
       icon="warning"
       srText={t(
-        (item.changed > 0
-          ? 'translator:staleNotice'
-          : 'translator:missingNotice') as never,
+        item.changed > 0 ? 'translator:staleNotice' : 'translator:missingNotice',
         { source: sourceLabel },
       )}
       action={
@@ -82,18 +78,18 @@ const StaleNotice = ({
             href={link.href}
             {...(link.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
           >
-            {t('translator:goToSource' as never, { source: sourceLabel })}
+            {t('translator:goToSource', { source: sourceLabel })}
             {link.newTab ? (
               <span className="rr-translator__sr-only">
                 {' '}
-                {t('translator:opensInNewTab' as never)}
+                {t('translator:opensInNewTab')}
               </span>
             ) : null}
           </a>
         ) : null
       }
     >
-      {t('translator:staleShort' as never)}
+      {t('translator:staleShort')}
     </Notice>
   )
 }
@@ -113,20 +109,16 @@ export const TargetNotice = ({
   if (item.state === 'none') return null
   if (isInFlight(item)) {
     return (
-      <Notice
-        tone="info"
-        icon="progress"
-        srText={t('translator:translatingThisLocale' as never)}
-      >
-        {t('translator:translatingShort' as never)}
+      <Notice tone="info" icon="progress" srText={t('translator:translatingThisLocale')}>
+        {t('translator:translatingShort')}
       </Notice>
     )
   }
   if (item.state === 'failed') {
     const failure = failedMessage(item.error)
     return (
-      <Notice tone="error" icon="warning" srText={t(failure.key as never, failure.vars)}>
-        {t('translator:failedShort' as never)}
+      <Notice tone="error" icon="warning" srText={t(failure.key, failure.vars)}>
+        {t('translator:failedShort')}
       </Notice>
     )
   }
@@ -144,12 +136,8 @@ export const TargetNotice = ({
   }
   if (!unpublishedDraft) return null
   return (
-    <Notice
-      tone="info"
-      icon="info"
-      srText={t('translator:unpublishedThisLocale' as never)}
-    >
-      {t('translator:unpublishedShort' as never)}
+    <Notice tone="info" icon="info" srText={t('translator:unpublishedThisLocale')}>
+      {t('translator:unpublishedShort')}
     </Notice>
   )
 }

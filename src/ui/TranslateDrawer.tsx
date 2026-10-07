@@ -51,7 +51,7 @@ const DrawerHeader = ({
       <button
         type="button"
         className="drawer__header__close"
-        aria-label={t('general:close' as never)}
+        aria-label={t('general:close')}
         onClick={() => closeModal(slug)}
       >
         <XIcon />
@@ -65,7 +65,7 @@ const DrawerHeader = ({
 const Summary = ({ messages, t }: Pick<DrawerProps, 'messages' | 't'>): ReactElement => (
   <div role="status" className="rr-translator__summary">
     {messages.map(message => (
-      <p key={message.key}>{t(message.key as never, message.vars)}</p>
+      <p key={message.key}>{t(message.key, message.vars)}</p>
     ))}
   </div>
 )
@@ -99,12 +99,12 @@ const SubmitFooter = ({
           if (!busy) onSubmit()
         }}
       >
-        {t('translator:submit' as never)}
+        {t('translator:submit')}
       </Button>
       <div className="rr-translator__footer-text">
         {busy ? (
           <p id={hintId} className="rr-translator__busy-hint">
-            {t('translator:busyHint' as never)}
+            {t('translator:busyHint')}
           </p>
         ) : null}
         <Summary messages={messages} t={t} />
@@ -150,11 +150,11 @@ const DrawerBody = ({
           tab order the notice has to come before the first button. */}
       {status.writesLive ? (
         <Notice id={modeDescription} tone="warning" icon="warning">
-          {t('translator:writesLive' as never)}
+          {t('translator:writesLive')}
         </Notice>
       ) : (
         <Notice id={modeDescription} tone="info" icon="info">
-          {t('translator:draftNotice' as never)}
+          {t('translator:draftNotice')}
         </Notice>
       )}
       <LocaleStates
@@ -164,7 +164,7 @@ const DrawerBody = ({
         selected={chosen}
         translated={translated}
         busy={busy}
-        error={missingLanguage ? t('translator:chooseLanguage' as never) : null}
+        error={missingLanguage ? t('translator:chooseLanguage') : null}
         language={language}
         onToggle={code => {
           setMissingLanguage(false)

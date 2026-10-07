@@ -20,7 +20,7 @@ import { TranslateButton } from './TranslateButton.js'
 import { TranslateDrawer } from './TranslateDrawer.js'
 import { TranslateStatus } from './TranslateStatus.js'
 import { localeLinkOf } from './localeLink.js'
-import type { Message, Translate } from './messages.js'
+import type { Message, Translate, TranslatorKey } from './messages.js'
 import { summaryMessages } from './messages.js'
 import { targetOf } from './target.js'
 import { useSummaryBatch } from './useSummaryBatch.js'
@@ -47,7 +47,7 @@ const localeLabel = ({
 }
 
 // Without drafts there is nothing left to review before publishing: it is already live.
-const doneKeyOf = (status: { writesLive: boolean }): string =>
+const doneKeyOf = (status: { writesLive: boolean }): TranslatorKey =>
   status.writesLive ? 'translator:doneLive' : 'translator:done'
 
 // The same rule Payload's bar uses to say "Draft" or "Changed" (`elements/Status`).
@@ -87,14 +87,14 @@ const StalledNotice = ({
   <Notice
     tone="warning"
     icon="warning"
-    srText={t(STATUS_UNAVAILABLE.key as never)}
+    srText={t(STATUS_UNAVAILABLE.key)}
     action={
       <Button buttonStyle="secondary" size="small" margin={false} onClick={onRetry}>
-        {t('translator:retry' as never)}
+        {t('translator:retry')}
       </Button>
     }
   >
-    {t('translator:statusUnavailableShort' as never)}
+    {t('translator:statusUnavailableShort')}
   </Notice>
 )
 
@@ -123,6 +123,7 @@ export const TranslateControl = (): ReactElement | null => {
   const { openModal, isModalOpen } = useModal()
   const editDepth = useEditDepth()
   const drawerSlug = useDrawerSlug('translator')
+  // Payload types `t` with its own key union, which ours is a subset of.
   const translate = t as unknown as Translate
   const apiBase = `${config.serverURL ?? ''}${config.routes.api}`
   const target = targetOf({ id, collectionSlug, globalSlug })
@@ -207,7 +208,7 @@ export const TranslateControl = (): ReactElement | null => {
       />
       <TranslateDrawer
         slug={drawerSlug}
-        title={translate('translator:drawerTitle' as never, {
+        title={translate('translator:drawerTitle', {
           source: labelOf(locale.code),
         })}
         status={{ ...status, locales: others }}
@@ -216,7 +217,7 @@ export const TranslateControl = (): ReactElement | null => {
         notice={
           isInFlight(current) ? (
             <Notice tone="info" icon="progress">
-              {translate('translator:translatingThisLocale' as never)}
+              {translate('translator:translatingThisLocale')}
             </Notice>
           ) : null
         }

@@ -17,8 +17,8 @@ const attentionParts = ({
   t: Translate
 }): string[] =>
   [
-    stale > 0 ? t('translator:attentionStale' as never, { count: stale }) : null,
-    failed > 0 ? t('translator:attentionFailed' as never, { count: failed }) : null,
+    stale > 0 ? t('translator:attentionStale', { count: stale }) : null,
+    failed > 0 ? t('translator:attentionFailed', { count: failed }) : null,
   ].filter((part): part is string => part !== null)
 
 export const TranslateButton = ({
@@ -47,7 +47,7 @@ export const TranslateButton = ({
       onClick={onClick}
     >
       {busy ? <Spinner /> : null}
-      {t((busy ? 'translator:inProgress' : 'translator:translate') as never)}
+      {t(busy ? 'translator:inProgress' : 'translator:translate')}
       {attention.length > 0 ? (
         <>
           <span

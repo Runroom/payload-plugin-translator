@@ -25,7 +25,7 @@ export const TranslateStatus = ({
     className="rr-translator__sr-only"
   >
     {messages.map(message => (
-      <p key={message.key}>{t(message.key as never, message.vars)}</p>
+      <p key={message.key}>{t(message.key, message.vars)}</p>
     ))}
   </div>
 )

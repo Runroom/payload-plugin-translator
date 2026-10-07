@@ -1003,12 +1003,20 @@ describe('TranslateControl: options', () => {
     render(
       <TranslateOptions
         definitions={[
-          { id: 'overwriteEdited', labelKey: 'a:label', hintKey: 'a:hint' },
-          { id: 'future' as never, labelKey: 'b:label', hintKey: 'b:hint' },
+          {
+            id: 'overwriteEdited',
+            labelKey: 'a:label' as never,
+            hintKey: 'a:hint' as never,
+          },
+          {
+            id: 'future' as never,
+            labelKey: 'b:label' as never,
+            hintKey: 'b:hint' as never,
+          },
         ]}
         values={{ overwriteEdited: false, future: true } as never}
         onChange={onChange}
-        t={(key: never): string => key}
+        t={(key: string): string => key}
       />,
     )
 
