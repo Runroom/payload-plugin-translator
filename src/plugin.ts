@@ -20,6 +20,7 @@ import type {
   TranslatorAccess,
   TranslatorSettings,
 } from './server/settings.js'
+import { localizationOf } from './server/settings.js'
 import { translateTask } from './server/task.js'
 
 const CONTROL_COMPONENT = '@runroom/payload-plugin-translator/client#TranslateControl'
@@ -39,14 +40,10 @@ export type TranslatorPluginOptions = {
   onLiveWrite?: OnLiveWrite
 }
 
-const localeCodesOf = (config: Config): string[] => {
-  const localization = config.localization
-  if (!localization)
-    throw new Error('translatorPlugin requires `localization` in the config')
-  return localization.locales.map(locale =>
+const localeCodesOf = (config: Config): string[] =>
+  localizationOf(config).locales.map(locale =>
     typeof locale === 'string' ? locale : locale.code,
   )
-}
 
 const validateLocales = ({
   slug,

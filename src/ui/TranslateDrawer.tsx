@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import type { LocaleStatus, StatusResponse } from '../shared/api.js'
 import { isUpToDate, LocaleStates } from './LocaleStates.js'
+import { MessageList } from './MessageList.js'
 import { Notice } from './Notice.js'
 import { TranslateOptions } from './TranslateOptions.js'
 import type { LocaleLink } from './localeLink.js'
@@ -64,9 +65,7 @@ const DrawerHeader = ({
 // announce nothing outside the modal: while the drawer is open, this one announces.
 const Summary = ({ messages, t }: Pick<DrawerProps, 'messages' | 't'>): ReactElement => (
   <div role="status" className="rr-translator__summary">
-    {messages.map(message => (
-      <p key={message.key}>{t(message.key, message.vars)}</p>
-    ))}
+    <MessageList messages={messages} t={t} />
   </div>
 )
 

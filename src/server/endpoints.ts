@@ -4,7 +4,7 @@ import type { TranslateQueuedBody, TranslatorErrorBody } from '../shared/api.js'
 import { STATUS_PATH, TRANSLATE_PATH } from '../shared/api.js'
 import { docPermissions } from './docAccess.js'
 import type { EntityRef } from './entity.js'
-import { entityOf, GLOBAL_DOC_ID, localesOf } from './entity.js'
+import { entityOf, GLOBAL_DOC_ID, localesOf, targetLocalesOf } from './entity.js'
 import { findRecords, saveRecord } from './records.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
 import { buildStatus, isBusy } from './status.js'
@@ -131,12 +131,13 @@ const entityExists = async ({
   return entity !== null && (await entity.find({ locale })) !== null
 }
 
-// The source is the locale open in the admin; the targets, any other locale of the entity.
 const targetsOf = (body: TranslateBody, config: EntityLocales): string[] | null => {
   if (!config.locales.includes(body.sourceLocale)) return null
-  const targets = body.targetLocales.filter(
-    locale => config.locales.includes(locale) && locale !== body.sourceLocale,
-  )
+  const targets = targetLocalesOf({
+    locales: config.locales,
+    sourceLocale: body.sourceLocale,
+    requested: body.targetLocales,
+  })
   return targets.length > 0 ? targets : null
 }
 

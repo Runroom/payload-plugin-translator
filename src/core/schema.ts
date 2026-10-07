@@ -6,6 +6,7 @@ import type {
 } from 'payload'
 import { fieldAffectsData, tabHasName } from 'payload/shared'
 
+import { isRecord } from './guards.js'
 import type { PathSegment, TranslatableKind, TranslatableValue } from './types.js'
 
 type Row = Record<string, unknown>
@@ -36,10 +37,7 @@ const childrenOf = (
   entry: SanitizedFieldPermissions | undefined,
 ): SanitizedFieldsPermissions => (entry === true ? true : (entry?.fields ?? {}))
 
-const asRow = (value: unknown): Row | undefined =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Row)
-    : undefined
+const asRow = (value: unknown): Row | undefined => (isRecord(value) ? value : undefined)
 
 const asRows = (value: unknown): Row[] =>
   Array.isArray(value) ? value.filter((row): row is Row => asRow(row) !== undefined) : []

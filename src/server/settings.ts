@@ -1,4 +1,4 @@
-import type { PayloadRequest } from 'payload'
+import type { Config, PayloadRequest } from 'payload'
 
 import type { TranslationProvider } from '../provider/types.js'
 import type { EntityRef } from './entity.js'
@@ -26,4 +26,15 @@ export type TranslatorSettings = {
   access: TranslatorAccess
   queue: string
   onLiveWrite?: OnLiveWrite
+}
+
+// `localization` is optional in Payload's config but the translator has nothing to do
+// without it: this is the one place that says so.
+export const localizationOf = (config: {
+  localization?: Config['localization']
+}): Exclude<Config['localization'], false | undefined> => {
+  const { localization } = config
+  if (!localization)
+    throw new Error('translatorPlugin requires `localization` in the config')
+  return localization
 }

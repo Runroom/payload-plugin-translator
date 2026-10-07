@@ -1,3 +1,4 @@
+import { isRecord } from './guards.js'
 import { TOKEN } from './marks.js'
 
 export type LexicalNode = {
@@ -90,9 +91,6 @@ export const extractContainers = (state: LexicalState): string[] => {
 }
 
 type Summary = Record<string, unknown>
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const idOf = (value: unknown): unknown => (isRecord(value) ? value.id : value) ?? null
 

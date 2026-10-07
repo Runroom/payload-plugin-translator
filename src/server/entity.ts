@@ -2,6 +2,7 @@ import type { Field, Payload } from 'payload'
 
 import { TRANSLATOR_WRITE_CONTEXT } from '../context.js'
 import type { EntityLocales, TranslatorSettings } from './settings.js'
+import { localizationOf } from './settings.js'
 
 type EntityType = 'collection' | 'global'
 
@@ -168,10 +169,7 @@ const globalEntity = (
 
 // The plugin already requires `localization` at startup; this only satisfies the type.
 export const defaultLocaleOf = (payload: Payload): string => {
-  const localization = payload.config.localization
-  if (!localization)
-    throw new Error('translatorPlugin requires `localization` in the config')
-  return localization.defaultLocale
+  return localizationOf(payload.config).defaultLocale
 }
 
 // `null` when the collection or the global is not registered in Payload.
@@ -179,6 +177,18 @@ export const entityOf = (payload: Payload, ref: EntityRef): Entity | null =>
   ref.entityType === 'global'
     ? globalEntity(payload, ref)
     : collectionEntity(payload, ref)
+
+// The source is the locale open in the admin; the targets, any other locale of the entity.
+export const targetLocalesOf = ({
+  locales,
+  sourceLocale,
+  requested,
+}: {
+  locales: string[]
+  sourceLocale: string
+  requested: string[]
+}): string[] =>
+  requested.filter(locale => locales.includes(locale) && locale !== sourceLocale)
 
 export const localesOf = (
   settings: TranslatorSettings,

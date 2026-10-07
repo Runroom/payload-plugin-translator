@@ -43,6 +43,10 @@ export type LocaleStatus = {
   kept: number
 }
 
+// A translation queued or in progress.
+export const isPendingState = (state: LocaleStatus['state']): boolean =>
+  state === 'queued' || state === 'running'
+
 export type StatusResponse = {
   enabled: boolean
   writesLive: boolean
