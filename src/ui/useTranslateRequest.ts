@@ -8,10 +8,10 @@ import type {
   TranslatorErrorCode,
 } from '../shared/api.js'
 import { TRANSLATE_PATH } from '../shared/api.js'
-import type { Message } from './messages.js'
+import type { Message, TranslatorKey } from './messages.js'
 import type { TranslateOptionValues } from './options.js'
 
-const REFUSALS: Record<number, string> = {
+const REFUSALS: Record<number, TranslatorKey> = {
   400: 'translator:badRequest',
   403: 'translator:forbidden',
   404: 'translator:notFound',

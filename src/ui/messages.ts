@@ -1,8 +1,24 @@
+import type { es } from '../i18n/es.js'
 import type { StatusResponse } from '../shared/api.js'
 
-export type Translate = (key: never, vars?: Record<string, unknown>) => string
+type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
 
-export type Message = { key: string; vars?: Record<string, unknown> }
+// i18next resolves `key_one`/`key_other` from `key` plus `count`, so the plural forms
+// are addressed by their base name.
+type WithoutPlural<K extends string> = K extends `${infer Base}_${PluralSuffix}`
+  ? Base
+  : K
+
+export type TranslatorKey =
+  `translator:${WithoutPlural<keyof typeof es.translator & string>}`
+
+// 'general:close' is Payload's own key, not one of ours.
+export type Translate = (
+  key: TranslatorKey | 'general:close',
+  vars?: Record<string, unknown>,
+) => string
+
+export type Message = { key: TranslatorKey; vars?: Record<string, unknown> }
 
 // Without a reason, the sentence with `{{error}}` would be left hanging on the colon.
 export const failedMessage = (error: string | null): Message =>
@@ -17,17 +33,16 @@ const resultMessages = ({
 }: {
   status: StatusResponse
   requested: string[]
-  doneKey: string
+  doneKey: TranslatorKey
 }): Message[] | null => {
   const items = status.locales.filter(item => requested.includes(item.locale))
   if (items.some(item => item.state === 'queued' || item.state === 'running')) return null
   const failed = items.find(item => item.state === 'failed')
   if (failed) return [failedMessage(failed.error)]
   const kept = items.reduce((sum, item) => sum + item.kept, 0)
-  return [
-    { key: doneKey },
-    ...(kept > 0 ? [{ key: 'translator:kept', vars: { count: kept } }] : []),
-  ]
+  const keptNotice: Message[] =
+    kept > 0 ? [{ key: 'translator:kept', vars: { count: kept } }] : []
+  return [{ key: doneKey }, ...keptNotice]
 }
 
 export const summaryMessages = ({
@@ -39,7 +54,7 @@ export const summaryMessages = ({
   status: StatusResponse
   requested: string[]
   notice: Message | null
-  doneKey: string
+  doneKey: TranslatorKey
 }): Message[] => {
   if (notice) return [notice]
   if (requested.length === 0) return []

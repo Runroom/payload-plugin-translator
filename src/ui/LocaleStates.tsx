@@ -8,7 +8,7 @@ import type { LocaleStatus } from '../shared/api.js'
 import type { Tone } from './Notice.js'
 import { Spinner } from './Notice.js'
 import type { LocaleLink } from './localeLink.js'
-import type { Translate } from './messages.js'
+import type { Translate, TranslatorKey } from './messages.js'
 import { failedMessage } from './messages.js'
 import { formatRelative } from './relativeTime.js'
 
@@ -22,7 +22,7 @@ type RowState =
   | 'published'
   | 'failed'
 
-const STATES: Record<RowState, { key: string; tone: Tone }> = {
+const STATES: Record<RowState, { key: TranslatorKey; tone: Tone }> = {
   none: { key: 'translator:stateNone', tone: 'neutral' },
   upToDate: { key: 'translator:stateUpToDate', tone: 'success' },
   stale: { key: 'translator:stateStale', tone: 'warning' },
@@ -77,21 +77,20 @@ const rowDetails = ({ item, sourceLabel, state, language, t }: RowProps): string
   const when = item.translatedAt
     ? formatRelative({ date: item.translatedAt, now: Date.now(), language })
     : null
+  const failure = state === 'failed' ? failedMessage(item.error) : null
   return [
-    state === 'failed'
-      ? t(failedMessage(item.error).key as never, failedMessage(item.error).vars)
-      : null,
+    failure ? t(failure.key, failure.vars) : null,
     state === 'stale' && item.changed > 0
-      ? t('translator:changedCount' as never, {
+      ? t('translator:changedCount', {
           count: item.changed,
           source: sourceLabel,
         })
       : null,
     state === 'stale' && item.missing > 0
-      ? t('translator:missingCount' as never, { count: item.missing })
+      ? t('translator:missingCount', { count: item.missing })
       : null,
-    when ? t('translator:translatedFrom' as never, { source: sourceLabel, when }) : null,
-    item.kept > 0 ? t('translator:keptCount' as never, { count: item.kept }) : null,
+    when ? t('translator:translatedFrom', { source: sourceLabel, when }) : null,
+    item.kept > 0 ? t('translator:keptCount', { count: item.kept }) : null,
   ].filter((text): text is string => text !== null)
 }
 
@@ -110,7 +109,7 @@ const StatePill = ({
     ) : (
       <span className="rr-translator__pill-dot" aria-hidden="true" />
     )}
-    {t(STATES[state].key as never)}
+    {t(STATES[state].key)}
   </span>
 )
 
@@ -144,10 +143,10 @@ const ReviewAction = ({
       // With `onClick`, Payload's `Button` cancels the link navigation.
       onClick={busy ? (): void => {} : undefined}
     >
-      {t('translator:review' as never)}{' '}
+      {t('translator:review')}{' '}
       <span className="rr-translator__sr-only">
         {label}
-        {link.newTab ? ` ${t('translator:opensInNewTab' as never)}` : null}
+        {link.newTab ? ` ${t('translator:opensInNewTab')}` : null}
       </span>
     </Button>
   )
@@ -168,8 +167,7 @@ const rowActions = (props: RowProps): ReactElement | null => {
           if (!busy) onRetry()
         }}
       >
-        {t('translator:retry' as never)}{' '}
-        <span className="rr-translator__sr-only">{label}</span>
+        {t('translator:retry')} <span className="rr-translator__sr-only">{label}</span>
       </Button>
     )
   }
@@ -289,7 +287,7 @@ export const LocaleStates = ({
       aria-describedby={error ? errorId : undefined}
     >
       <legend className="rr-translator__section-title">
-        {t('translator:languages' as never)}
+        {t('translator:languages')}
       </legend>
       <ul className="rr-translator__rows">
         {locales.map(item => (

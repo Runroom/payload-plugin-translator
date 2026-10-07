@@ -1,4 +1,5 @@
 import type { TranslateOptions } from '../shared/api.js'
+import type { TranslatorKey } from './messages.js'
 
 export type TranslateOptionId = keyof TranslateOptions
 
@@ -6,8 +7,8 @@ export type TranslateOptionValues = TranslateOptions
 
 export type TranslateOptionDefinition = {
   id: TranslateOptionId
-  labelKey: string
-  hintKey: string
+  labelKey: TranslatorKey
+  hintKey: TranslatorKey
 }
 
 // Each value travels in the `POST /translate` body with its `id` as the key: a new option
