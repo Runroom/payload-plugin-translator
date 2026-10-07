@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildUpdateData } from '../src/core/apply.js'
+import { buildUpdateData } from '../../src/core/apply.js'
 
 const targetDoc = {
   id: 'evt-1',

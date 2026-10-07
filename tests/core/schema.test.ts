@@ -1,7 +1,7 @@
 import type { Block, Field, SanitizedFieldsPermissions } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { collectTranslatables, findLocalizedContainers } from '../src/core/schema.js'
+import { collectTranslatables, findLocalizedContainers } from '../../src/core/schema.js'
 
 const fields: Field[] = [
   {

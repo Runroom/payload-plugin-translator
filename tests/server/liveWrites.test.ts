@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { notifyLiveWrites } from '../src/server/liveWrites.js'
+import { notifyLiveWrites } from '../../src/server/liveWrites.js'
 
 describe('notifyLiveWrites', () => {
   it('marks only the translation timestamp read before the hook', async () => {

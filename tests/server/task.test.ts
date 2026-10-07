@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { runTranslation } from '../src/server/runTranslation.js'
-import type { TranslatorSettings } from '../src/server/settings.js'
-import { translateTask } from '../src/server/task.js'
+import { runTranslation } from '../../src/server/runTranslation.js'
+import type { TranslatorSettings } from '../../src/server/settings.js'
+import { translateTask } from '../../src/server/task.js'
 
-vi.mock('../src/server/runTranslation.js', () => ({
+vi.mock('../../src/server/runTranslation.js', () => ({
   runTranslation: vi.fn().mockResolvedValue(undefined),
 }))
 

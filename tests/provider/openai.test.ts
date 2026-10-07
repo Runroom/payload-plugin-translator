@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 
-import type { OpenAIClientLike } from '../src/exports/openai.js'
-import { openAIProvider } from '../src/exports/openai.js'
-import { ProviderError } from '../src/provider/types.js'
+import type { OpenAIClientLike } from '../../src/exports/openai.js'
+import { openAIProvider } from '../../src/exports/openai.js'
+import { ProviderError } from '../../src/provider/types.js'
 
 const openAIConstructor = vi.hoisted(() => vi.fn())
 vi.mock('openai', () => ({
