@@ -1,8 +1,9 @@
+import type { PayloadRequest } from 'payload'
 import { docAccessOperation } from 'payload'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { fingerprintOf } from '../../../src/core/fingerprint.js'
-import { settings, endpoint, request, recent } from './helpers.js'
+import { settings, endpoint, request, recent, requester } from './helpers.js'
 
 // Payload resolves per-document permissions by reading the database; here each test sets
 // them.
@@ -16,13 +17,24 @@ vi.mock('payload', async importOriginal => ({
   })),
 }))
 
+type Permissions = { fields: unknown; read: boolean; update: boolean }
+
+const open: Permissions = { fields: true, read: true, update: true }
+
+// Document permissions per locale; a locale left out is fully open.
+const permissionsByLocale = (byLocale: Record<string, Permissions>): void => {
+  vi.mocked(docAccessOperation).mockImplementation(
+    async ({ req }) => (byLocale[(req as PayloadRequest).locale!] ?? open) as never,
+  )
+}
+
+afterEach(() => {
+  vi.mocked(docAccessOperation).mockReset()
+})
+
 describe('GET /translator/status', () => {
-  it('does not report fields the requester cannot update as stale', async () => {
-    vi.mocked(docAccessOperation).mockResolvedValueOnce({
-      fields: { title: { read: true } },
-      read: true,
-      update: true,
-    } as never)
+  it('does not report fields the requester cannot update in the target as stale', async () => {
+    permissionsByLocale({ ca: { ...open, fields: { title: { read: true } } } })
     const { req } = request({
       query: 'collection=events&id=e1',
       records: [
@@ -35,6 +47,76 @@ describe('GET /translator/status', () => {
     const body = await response.json()
 
     expect(body.locales[1]).toMatchObject({ stale: false, changed: 0, missing: 0 })
+  })
+
+  it('reads the locales it compares as the requester, checking read access in each', async () => {
+    const seen: string[] = []
+    vi.mocked(docAccessOperation).mockImplementation(async ({ req }) => {
+      seen.push((req as PayloadRequest).locale!)
+      return open as never
+    })
+    const { req, findByID } = request({
+      query: 'collection=events&id=e1',
+      records: [{ ...recent('ca', 'done'), fields: {} }],
+      docsByLocale: { ca: { id: 'e1', title: 'Curs' } },
+    })
+
+    await endpoint(settings(), '/translator/status')(req)
+
+    expect(seen).toEqual(['es', 'ca', 'en'])
+    expect(findByID).toHaveBeenCalledWith(
+      expect.objectContaining({ locale: 'es', overrideAccess: false, user: requester }),
+    )
+    expect(findByID).toHaveBeenCalledWith(
+      expect.objectContaining({ locale: 'ca', overrideAccess: false, user: requester }),
+    )
+  })
+
+  it('reports a locale the requester cannot read without comparison data', async () => {
+    permissionsByLocale({ ca: { ...open, read: false } })
+    const { req, findByID } = request({
+      query: 'collection=events&id=e1',
+      records: [
+        { ...recent('ca', 'done'), fields: { title: { source: 'old', output: 'old' } } },
+        { ...recent('en', 'done'), fields: { title: { source: 'old', output: 'old' } } },
+      ],
+      docsByLocale: { ca: { id: 'e1', title: null }, en: { id: 'e1', title: null } },
+    })
+
+    const response = await endpoint(settings(), '/translator/status')(req)
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.locales[1]).toMatchObject({
+      locale: 'ca',
+      state: 'done',
+      stale: false,
+      changed: 0,
+      missing: 0,
+    })
+    expect(body.locales[2]).toMatchObject({ locale: 'en', stale: true, changed: 1 })
+    expect(findByID).not.toHaveBeenCalledWith(expect.objectContaining({ locale: 'ca' }))
+  })
+
+  it('serves the status when only the default locale is unreadable', async () => {
+    permissionsByLocale({ es: { ...open, read: false } })
+    const { req } = request({
+      query: 'collection=events&id=e1',
+      records: [
+        {
+          ...recent('ca', 'done'),
+          sourceLocale: 'en',
+          fields: { title: { source: 'old', output: 'old' } },
+        },
+      ],
+      docsByLocale: { ca: { id: 'e1', title: null }, en: { id: 'e1', title: 'Course' } },
+    })
+
+    const response = await endpoint(settings(), '/translator/status')(req)
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.locales[1]).toMatchObject({ locale: 'ca', stale: true, changed: 1 })
   })
 
   it('rejects users the access function denies', async () => {
@@ -459,8 +541,8 @@ describe('GET /translator/status and the last publication', () => {
     expect(findGlobalVersions).not.toHaveBeenCalled()
   })
 
-  it('does not read the versions of a document the user cannot read', async () => {
-    vi.mocked(docAccessOperation).mockResolvedValueOnce({
+  it('does not read the versions of a document the user cannot read in any locale', async () => {
+    vi.mocked(docAccessOperation).mockResolvedValue({
       fields: {},
       read: false,
       update: false,

@@ -1,6 +1,7 @@
 import type { FieldWrite } from '../core/apply.js'
 import { fingerprintOf } from '../core/fingerprint.js'
 import type { FieldHashes, TranslationPlan } from '../core/plan.js'
+import { isSameSource } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
 import type { TranslatableValue } from '../core/types.js'
 import type { LocaleRun } from './localeRun.js'
@@ -21,19 +22,24 @@ export const translatablesOf = (
 
 // Fields the requester may not touch are left out of the plan but keep their fingerprints;
 // otherwise the next request by someone who may touch them would treat their text as a
-// hand edit. Paths that no longer exist (a removed row) are still dropped.
+// hand edit. Paths that no longer exist (a removed row) are still dropped, and so is
+// everything when the source locale changed: the record is stamped with the new source
+// locale, and those fingerprints were taken from the old one.
 export const keepHiddenHashes = ({
   run,
   sourceDoc,
   plan,
   previous,
+  previousSourceLocale,
 }: {
   run: LocaleRun
   sourceDoc: Record<string, unknown>
   plan: { hashes: FieldHashes }
   previous: FieldHashes
+  previousSourceLocale: string
 }): void => {
   if (run.permissions === true) return
+  if (!isSameSource(run.sourceLocale, previousSourceLocale)) return
   for (const { path } of translatablesOf(run, sourceDoc, { restricted: false })) {
     const hashes = previous[path]
     if (hashes && !(path in plan.hashes)) plan.hashes[path] = hashes
@@ -42,8 +48,9 @@ export const keepHiddenHashes = ({
 
 // Payload does not reject a field whose row-level `access.update` denies the write (a
 // locked row): it silently keeps the previous value. A field saved with the value it held
-// right before the write, and not with what was sent, was refused that way. It is kept
-// like a hand edit, so the run does not fail and the next run tries again.
+// right before the write, and not with what was sent, was refused that way. It is listed
+// as kept, so the run does not fail, and its previous fingerprints stay as they were: if
+// the row still holds our earlier output, the next run tries again once it is unlocked.
 const wasRefused = ({
   value,
   sent,
@@ -68,12 +75,14 @@ export const hashesOf = ({
   writes,
   written,
   before,
+  previous,
   run,
 }: {
   plan: TranslationPlan
   writes: PathWrite[]
   written: Record<string, unknown>
   before: Map<string, string | null>
+  previous: FieldHashes
   run: LocaleRun
 }): FieldHashes => {
   const saved = translatablesOf(run, written)
@@ -85,7 +94,7 @@ export const hashesOf = ({
     const source = fingerprintOf(value)!
     if (wasRefused({ value, sent, saved: savedValue, before: before.get(value.path) })) {
       plan.kept.push(value.path)
-      plan.hashes[value.path] = { source, output: null }
+      plan.hashes[value.path] = previous[value.path] ?? { source, output: null }
       continue
     }
     hashes[value.path] = { source, output: savedValue ? fingerprintOf(savedValue) : null }

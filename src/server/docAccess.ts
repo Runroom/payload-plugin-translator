@@ -22,17 +22,19 @@ const NONE: DocPermissions = { read: false, update: false, fields: {} }
 // Access rules may depend on `req.locale`, and `docAccessOperation` reads the document in
 // that locale before handing it to them. The request is restored afterwards: a real
 // request cannot be cloned, since `headers` and friends live on the `Request` prototype.
+// That read goes through `createLocalReq`, which also rewrites `req.fallbackLocale`.
 const withLocale = async <T>(
   req: PayloadRequest,
   locale: string,
   work: () => Promise<T>,
 ): Promise<T> => {
-  const previous = req.locale
+  const previous = { locale: req.locale, fallbackLocale: req.fallbackLocale }
   req.locale = locale
   try {
     return await work()
   } finally {
-    req.locale = previous
+    req.locale = previous.locale
+    req.fallbackLocale = previous.fallbackLocale
   }
 }
 

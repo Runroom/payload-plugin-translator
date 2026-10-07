@@ -3,10 +3,19 @@ import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { TypedUser } from 'payload'
 import { buildConfig } from 'payload'
 
 import { fakeProvider } from '../src/exports/testing.js'
 import { translatorPlugin } from '../src/index.js'
+
+type Role = { slug?: string } | number | string
+
+// Only populated roles can say what they are: at depth 0 (ids only) no role is found.
+const hasRole = (user: TypedUser | null, slug: string): boolean =>
+  (user?.roles as Role[] | null | undefined)?.some(
+    role => typeof role === 'object' && role.slug === slug,
+  ) === true
 
 /**
  * SQLite file the app writes to. Each import gets its own file under the OS temp dir, so
@@ -40,7 +49,8 @@ export default buildConfig({
   collections: [
     {
       slug: 'users',
-      auth: true,
+      // `req.user` is bound with its roles populated, as the `guarded` update rule needs.
+      auth: { depth: 1 },
       fields: [
         // Flags the `guarded` access rules look at; both can change after a job is queued.
         { name: 'canTranslate', type: 'checkbox', defaultValue: true },
@@ -50,6 +60,14 @@ export default buildConfig({
           options: ['editor', 'admin'],
           defaultValue: 'editor',
         },
+        { name: 'roles', type: 'relationship', relationTo: 'roles', hasMany: true },
+      ],
+    },
+    {
+      slug: 'roles',
+      fields: [
+        { name: 'slug', type: 'text', required: true },
+        { name: 'title', type: 'text' },
       ],
     },
     {
@@ -71,8 +89,12 @@ export default buildConfig({
       slug: 'guarded',
       versions: { drafts: true },
       access: {
+        // A role `no-<locale>` hides that locale; `viewer` forbids every write.
+        read: ({ req }): boolean => !hasRole(req.user, `no-${req.locale}`),
         update: ({ req }): boolean =>
-          req.locale !== 'fr' && req.user?.canTranslate === true,
+          req.locale !== 'fr' &&
+          req.user?.canTranslate === true &&
+          !hasRole(req.user, 'viewer'),
       },
       fields: [
         { name: 'title', type: 'text', localized: true },

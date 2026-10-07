@@ -183,12 +183,17 @@ requested the translation no longer exists") and nothing is sent to the provider
 access is applied by Payload on the real data: a field the requester may not read in the
 source locale is never sent to the provider, and a field they may not update in the target
 locale (a row-level rule on `siblingData` or `blockData`, for instance) keeps its value
-and is listed as kept, without failing the run. Fields missing either permission at the
-schema level are not counted in status either, and their previous fingerprints are kept.
-Every write it makes to your documents carries its own request `context`
-(`TRANSLATOR_WRITE_CONTEXT`); use `isTranslatorWrite(context)` in your hooks to tell its
-writes apart, for example to skip revalidating the public site on a draft write, or to
-keep a sync from claiming a field the translator wrote.
+and is listed as kept, without failing the run; its fingerprints stay as they were, so if
+it still holds the translator's earlier output, the status reports it as stale and the
+next run tries again. Fields missing either permission at the schema level are not counted
+in status either, and their previous fingerprints are kept. `GET /status` reads each
+locale as the requester and checks read access per locale: a locale they cannot read is
+reported without comparison data (`stale: false`, `changed: 0`, `missing: 0`), and the
+document only answers 404 when none of its locales is readable. Every write it makes to
+your documents carries its own request `context` (`TRANSLATOR_WRITE_CONTEXT`); use
+`isTranslatorWrite(context)` in your hooks to tell its writes apart, for example to skip
+revalidating the public site on a draft write, or to keep a sync from claiming a field the
+translator wrote.
 
 ## Endpoints
 

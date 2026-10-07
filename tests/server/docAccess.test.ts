@@ -52,6 +52,20 @@ describe('docPermissions', () => {
     expect(result).toEqual({ read: true, update: false, fields: true })
   })
 
+  it('restores the fallback locale the nested read rewrote', async () => {
+    const req = { payload, locale: 'en', fallbackLocale: 'en', user } as never
+    // `docAccessOperation` reads the document through `createLocalReq`, which sets the
+    // request's fallback locale from the locale it reads in.
+    vi.mocked(docAccessOperation).mockImplementation(async args => {
+      ;(args.req as { fallbackLocale: unknown }).fallbackLocale = null
+      return { read: true, fields: true } as never
+    })
+
+    await docPermissions({ req, ref, locale: 'fr' })
+
+    expect(req).toMatchObject({ locale: 'en', fallbackLocale: 'en' })
+  })
+
   it('restores the request locale even when the check throws', async () => {
     const req = { payload, locale: 'en', user } as never
     vi.mocked(docAccessOperation).mockRejectedValue(new Error('db down'))
