@@ -3,7 +3,7 @@ import { docAccessOperation, docAccessOperationGlobal } from 'payload'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { fingerprintOf } from '../src/core/fingerprint.js'
-import { fakeProvider } from '../src/provider/fake.js'
+import { fakeProvider } from '../src/exports/testing.js'
 import { translatorEndpoints } from '../src/server/endpoints.js'
 import type { TranslatorSettings } from '../src/server/settings.js'
 

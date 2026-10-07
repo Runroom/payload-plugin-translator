@@ -9,16 +9,23 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       # Reads the pnpm version from `packageManager` in package.json.
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { MarkError } from '../src/core/lexical.js'
 import { marksMatch } from '../src/core/marks.js'
-import { fakeProvider } from '../src/provider/fake.js'
+import { fakeProvider } from '../src/exports/testing.js'
 import { translateUnits } from '../src/provider/translateUnits.js'
 import type { TranslationProvider } from '../src/provider/types.js'
 

@@ -29,7 +29,7 @@ First release.
   drafts.
 - `isTranslatorWrite` and `TRANSLATOR_WRITE_CONTEXT`, to recognise the translator's writes
   in hooks.
-- Providers: `openAIProvider` (`/openai` entry, optional `openai` peer) and
-  `fakeProvider`.
+- Providers: `openAIProvider` (`/openai` entry, optional `openai` peer) and `fakeProvider`
+  (`/testing` entry, for tests and E2E runs).
 
 [0.1.0]: https://github.com/Runroom/payload-plugin-translator/releases/tag/v0.1.0

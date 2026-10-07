@@ -35,6 +35,10 @@
       "types": "./dist/exports/openai.d.ts",
       "default": "./dist/exports/openai.js"
     },
+    "./testing": {
+      "types": "./dist/exports/testing.d.ts",
+      "default": "./dist/exports/testing.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
@@ -98,7 +102,7 @@
     "vitest": "5.0.1"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.12.0"
   },
   "packageManager": "pnpm@11.0.6",
   "publishConfig": {

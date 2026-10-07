@@ -1,8 +1,8 @@
 import type { Config, Plugin } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
 
+import { fakeProvider } from '../src/exports/testing.js'
 import { translatorPlugin, translatorTranslations } from '../src/index.js'
-import { fakeProvider } from '../src/provider/fake.js'
 
 // Payload resolves per-document permissions against the database; here only the config
 // the plugin returns matters.

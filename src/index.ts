@@ -1,5 +1,4 @@
 export { isTranslatorWrite, TRANSLATOR_WRITE_CONTEXT } from './context.js'
-export { fakeProvider } from './provider/fake.js'
 export { ProviderError } from './provider/types.js'
 export type { TranslateRequest, TranslationProvider } from './provider/types.js'
 export { translatorPlugin, translatorTranslations } from './plugin.js'
