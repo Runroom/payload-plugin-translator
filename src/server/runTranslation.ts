@@ -10,17 +10,12 @@ import {
   LockLostError,
   PreviousFailure,
 } from './errors.js'
-import type {
-  LocaleRun,
-  Outcome,
-  Previous,
-  Requester,
-  TranslationJobInput,
-} from './localeRun.js'
-import { execute, LOCK_LOST } from './localeRun.js'
-import { ownsLock, releaseLock } from './lock.js'
+import type { LocaleRun, Outcome, Previous, TranslationJobInput } from './localeRun.js'
+import { assertLock, execute, LOCK_LOST, recordStamp } from './localeRun.js'
+import { refreshLock, releaseLock } from './lock.js'
 import type { RecordKey, TranslationRecord } from './records.js'
 import { findRecord, recordKeyOf, saveRecord } from './records.js'
+import { loadRequester, requesterOf } from './requester.js'
 import type { TranslatorSettings } from './settings.js'
 import type { TransactionID } from './transaction.js'
 
@@ -39,19 +34,23 @@ export const MISSING_REQUESTER = 'The user who requested the translation no long
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
+type Stamp = ReturnType<typeof recordStamp>
+
 const saveFailure = async ({
   payload,
   key,
   message,
+  stamp,
   status = 'failed',
 }: {
   payload: Payload
   key: RecordKey
   message: string
+  stamp: Stamp
   status?: 'failed' | 'queued'
 }): Promise<void> => {
   try {
-    await saveRecord(payload, { key, data: { status, error: message } })
+    await saveRecord(payload, { key, data: { status, error: message, ...stamp } })
   } catch (err) {
     payload.logger.error({ err, msg: 'Could not save the translation failure' })
   }
@@ -60,7 +59,7 @@ const saveFailure = async ({
 // When nothing was translated, `translatedAt` keeps the date of the last real translation.
 // Updating it would make `onLiveWrite` notify the website again with nothing changed.
 const saveDone = async (
-  { payload, sourceLocale }: Pick<LocaleRun, 'payload' | 'sourceLocale'>,
+  { payload, input, sourceLocale }: Pick<LocaleRun, 'payload' | 'input' | 'sourceLocale'>,
   key: RecordKey,
   { hashes, kept, translated }: Outcome,
   transactionID: TransactionID | undefined,
@@ -74,26 +73,36 @@ const saveDone = async (
       error: null,
       sourceLocale,
       ...(translated ? { translatedAt: new Date().toISOString() } : {}),
+      ...recordStamp(input),
     },
     transactionID,
   })
 }
 
-// While a retry is pending the record stays `queued`. That keeps the document locked, so a
-// new POST cannot start another job that would run in parallel with this one.
+// While a retry is pending the record stays `queued` and the job keeps the lock, so a new
+// POST cannot start another job that would run in parallel with this one. Once the lock is
+// lost (a provider call that outlasted the busy window) the records belong to the newer
+// request, which set them to `queued` for its own job: a `failed` written here would read
+// as that job's failure, so the loss replaces the error and nothing is written.
 const recordFailure = async (
-  { payload }: Pick<LocaleRun, 'payload'>,
+  { payload, input }: Pick<LocaleRun, 'payload' | 'input'>,
   key: RecordKey,
   { error, isLastAttempt }: { error: unknown; isLastAttempt: boolean },
-): Promise<void> => {
+): Promise<unknown> => {
+  if (error instanceof LockLostError) return error
+  if (!(await refreshLock(payload, input, input.lockToken))) {
+    return new LockLostError(LOCK_LOST)
+  }
   const willRetry = !isLastAttempt && !isUnrecoverable(error)
   const retryNote = willRetry && error instanceof ConcurrentEditError
   await saveFailure({
     payload,
     key,
     message: retryNote ? `${messageOf(error)}; it will be retried` : messageOf(error),
+    stamp: recordStamp(input),
     status: willRetry ? 'queued' : 'failed',
   })
+  return error
 }
 
 // A record without `sourceLocale` was translated from the default locale.
@@ -110,59 +119,78 @@ const permissionsOf = (
 ): ReturnType<typeof requesterPermissions> =>
   requesterPermissions({ payload, user, ref: input, sourceLocale, targetLocale })
 
+// A `failed` record is this job's own earlier attempt only if it carries the job's lock
+// token: the POST stamped the `queued` records with it. A record another holder wrote,
+// or one from before the token existed, is just retried.
+const previousFailure = (
+  record: TranslationRecord | null,
+  {
+    lockToken,
+    targetLocale,
+  }: Pick<TranslationJobInput, 'lockToken'> & {
+    targetLocale: string
+  },
+): PreviousFailure | null =>
+  record?.status === 'failed' && record.lockToken === lockToken
+    ? new PreviousFailure(record.error ?? `${targetLocale} failed`)
+    : null
+
 const translateLocale = async ({
   run,
   user,
   isLastAttempt,
-  jobCreatedAt,
 }: {
   run: Omit<LocaleRun, 'permissions'>
   user: TypedUser
   isLastAttempt: boolean
-  jobCreatedAt?: string | Date
 }): Promise<{ error: unknown } | null> => {
   const { payload, input, targetLocale } = run
   const key = recordKeyOf(input, targetLocale)
   try {
     const record = await findRecord(payload, key)
-    if (
-      record?.status === 'failed' &&
-      (!jobCreatedAt ||
-        !record.updatedAt ||
-        Date.parse(String(record.updatedAt)) >= Date.parse(String(jobCreatedAt)))
-    ) {
-      return { error: new PreviousFailure(record.error ?? `${targetLocale} failed`) }
-    }
+    const failure = previousFailure(record, { lockToken: input.lockToken, targetLocale })
+    if (failure) return { error: failure }
     const permissions = await permissionsOf(run, user)
-    await saveRecord(payload, { key, data: { status: 'running', error: null } })
+    await assertLock(run)
+    await saveRecord(payload, {
+      key,
+      data: { status: 'running', error: null, ...recordStamp(input) },
+    })
     // The failure record below is written after the transaction was rolled back.
     await execute({ ...run, permissions }, previousOf(payload, record), (outcome, tx) =>
       saveDone(run, key, outcome, tx),
     )
     return null
   } catch (error) {
-    // Once the lock is lost the records belong to the newer request, which set them to
-    // `queued` for its own job; a `failed` written here would read as that job's failure.
-    if (!(error instanceof LockLostError)) {
-      await recordFailure(run, key, { error, isLastAttempt })
-    }
-    return { error }
+    return { error: await recordFailure(run, key, { error, isLastAttempt }) }
   }
 }
 
+// The records are marked only while the job still owns the lock; otherwise they already
+// describe the newer request and the job is just cancelled as superseded.
 const cancelAll = async ({
   payload,
   input,
   targets,
   message,
+  lockToken,
 }: {
   payload: Payload
   input: RawTranslationJobInput
   targets: string[]
   message: string
+  lockToken: string
 }): Promise<never> => {
+  if (!(await refreshLock(payload, input, lockToken))) {
+    throw new JobCancelledError(LOCK_LOST)
+  }
   for (const targetLocale of targets) {
-    await saveFailure({ payload, key: recordKeyOf(input, targetLocale), message })
+    await saveFailure({
+      payload,
+      key: recordKeyOf(input, targetLocale),
+      message,
+      stamp: { lockToken },
+    })
   }
   throw new JobCancelledError(message)
 }
@@ -187,47 +215,6 @@ const requestedLocales = (raw: unknown): string[] =>
 const lockTokenOf = (raw: unknown): string | null =>
   typeof raw === 'string' ? raw : null
 
-const requesterOf = (raw: unknown): Requester | null => {
-  const value = raw as { collection?: unknown; id?: unknown } | null
-  if (!value || typeof value.collection !== 'string') return null
-  if (typeof value.id !== 'string' && typeof value.id !== 'number') return null
-  return { collection: value.collection, id: String(value.id) }
-}
-
-// Payload binds `req.user` with the auth collection's `auth.depth` (unset, it falls back
-// to `defaultDepth` like any read), and stamps it with its collection and strategy.
-const authDepthOf = (payload: Payload, collection: string): number | undefined => {
-  const registered = payload.collections as unknown as Record<
-    string,
-    { config: { auth?: { depth?: number } } } | undefined
-  >
-  return registered[collection]?.config.auth?.depth
-}
-
-// The job runs outside the request that queued it, so the requester is loaded again on
-// every attempt; a user deleted in the meantime can no longer translate anything. The user
-// is shaped as the admin's request had it, so access rules that look at populated
-// relations (a role's slug) decide the same way in the job.
-const loadRequester = async (
-  payload: Payload,
-  requester: Requester | null,
-): Promise<TypedUser | null> => {
-  if (!requester) return null
-  const user = (await payload.findByID({
-    collection: requester.collection as never,
-    id: requester.id,
-    depth: authDepthOf(payload, requester.collection),
-    overrideAccess: true,
-    disableErrors: true,
-  })) as unknown as Record<string, unknown> | null
-  if (!user) return null
-  return {
-    ...user,
-    collection: requester.collection,
-    _strategy: 'local-jwt',
-  } as unknown as TypedUser
-}
-
 type Prepared = {
   run: Omit<LocaleRun, 'targetLocale' | 'permissions'>
   user: TypedUser
@@ -250,12 +237,12 @@ const prepare = async ({
   const config = localesOf(settings, input)
   if (!config) {
     const message = `${name} is not translatable`
-    return cancelAll({ payload, input, targets: requested, message })
+    return cancelAll({ payload, input, targets: requested, message, lockToken })
   }
   const sourceLocale = input.sourceLocale ?? defaultLocaleOf(payload)
   const targets = targetLocalesOf({ locales: config.locales, sourceLocale, requested })
   const cancel = (reason: string): Promise<never> =>
-    cancelAll({ payload, input, targets, message: reason })
+    cancelAll({ payload, input, targets, message: reason, lockToken })
   if (!config.locales.includes(sourceLocale))
     return cancel(`${name} is not translated from ${sourceLocale}`)
   if (targets.length === 0)
@@ -286,7 +273,6 @@ type RunArgs = {
   input: RawTranslationJobInput
   settings: TranslatorSettings
   isLastAttempt: boolean
-  jobCreatedAt?: string | Date
 }
 
 // Locales run in sequence inside a single job because each write saves the whole document
@@ -294,7 +280,7 @@ type RunArgs = {
 // other. Once the lock is lost, the locales still to come are not even tried: the newer
 // job owns the document and its records now.
 const translateAll = async (
-  { payload, input, settings, isLastAttempt, jobCreatedAt }: RunArgs,
+  { payload, input, settings, isLastAttempt }: RunArgs,
   lockToken: string,
 ): Promise<void> => {
   const { run, user, targets } = await prepare({ payload, input, settings, lockToken })
@@ -304,7 +290,6 @@ const translateAll = async (
       run: { ...run, targetLocale },
       user,
       isLastAttempt,
-      jobCreatedAt,
     })
     if (!failure) continue
     errors.push(failure.error)
@@ -328,13 +313,14 @@ const release = async (
 }
 
 // A job whose lock expired and was taken over by a newer request is cancelled without
-// writing anything, not even its records: they already describe the newer request.
-// Otherwise the lock is kept while a retry is pending and released when the job ends for
-// good: success, cancellation or the last attempt.
+// writing anything, not even its records: they already describe the newer request. The
+// first check is a refresh: a lock about to expire (a retry after a long backoff) is
+// extended before anything is read. Otherwise the lock is kept while a retry is pending
+// and released when the job ends for good: success, cancellation or the last attempt.
 export const runTranslation = async (args: RunArgs): Promise<void> => {
   const { payload, input, isLastAttempt } = args
   const token = lockTokenOf(input.lockToken)
-  if (!token || !(await ownsLock(payload, input, token))) {
+  if (!token || !(await refreshLock(payload, input, token))) {
     throw new JobCancelledError(LOCK_LOST)
   }
   try {

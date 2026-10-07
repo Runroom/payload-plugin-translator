@@ -134,8 +134,9 @@ const parseReply = (outputText: string, keys: string[]): Record<string, string> 
 export const openAIProvider = ({
   apiKey,
   model,
-  // The SDK defaults (10 min and 2 retries) would keep a job running past the window in
-  // which its record locks the document (`BUSY_WINDOW_MS` in server/limits.ts).
+  // The SDK defaults (10 min and 2 retries) could stretch one call past the window in
+  // which the document lock stays live without a heartbeat (`BUSY_WINDOW_MS` in
+  // server/limits.ts): the job refreshes the lock between provider calls, not during one.
   client = new OpenAI({
     apiKey,
     timeout: 60_000,
@@ -147,7 +148,10 @@ export const openAIProvider = ({
   /** Model name, for example `'gpt-5-mini'`. */
   model: string
   /**
-   * A client to use instead of the one built from `apiKey`.
+   * A client to use instead of the one built from `apiKey`. Keep its `timeout` × (1 +
+   * `maxRetries`) well under the document lock window (15 minutes, `BUSY_WINDOW_MS`): the
+   * job only refreshes the lock between calls, so a call that outlasts the window lets a
+   * newer request take the document over and cancels the job.
    * @default new OpenAI({ apiKey, timeout: 60_000, maxRetries: 1 })
    */
   client?: OpenAIClientLike

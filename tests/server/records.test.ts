@@ -42,6 +42,20 @@ describe('saveRecord', () => {
     })
   })
 
+  it('rethrows a failed create inside a transaction instead of falling back', async () => {
+    const failure = new Error('unique violation')
+    const create = vi.fn().mockRejectedValue(failure)
+    const { payload, update } = fakePayload({ finds: [[], [{ id: 'r1' }]], create })
+
+    // Payload rolled the transaction back on the failed create; a fallback would commit
+    // the record on the plain connection, outside the rolled-back write.
+    await expect(
+      saveRecord(payload, { key, data: { status: 'done' }, transactionID: 'tx-1' }),
+    ).rejects.toBe(failure)
+    expect(update).not.toHaveBeenCalled()
+    expect(payload.find).toHaveBeenCalledTimes(1)
+  })
+
   it('rethrows the create error when the record still does not exist', async () => {
     const failure = new Error('db down')
     const create = vi.fn().mockRejectedValue(failure)

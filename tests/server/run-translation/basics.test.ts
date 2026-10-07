@@ -17,6 +17,7 @@ import {
   fields,
   settings,
   input,
+  LOCK_TOKEN,
   statefulPayload,
   userOf,
 } from './helpers.js'
@@ -29,7 +30,21 @@ vi.mock('../../../src/server/docAccess.js', () => ({
 }))
 
 describe('runTranslation', () => {
-  it('retries a stale failed record created before this job', async () => {
+  it('retries a failed record that another lock holder wrote', async () => {
+    const { payload, records } = fakePayload({
+      docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: null } },
+      record: {
+        status: 'failed',
+        error: 'old failure',
+        lockToken: 'older-token',
+        updatedAt: new Date().toISOString(),
+      },
+    })
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
+    expect(records.mock.calls.at(-1)![0].data.status).toBe('done')
+  })
+
+  it('retries a failed record without a lock token', async () => {
     const { payload, records } = fakePayload({
       docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: null } },
       record: {
@@ -38,38 +53,28 @@ describe('runTranslation', () => {
         updatedAt: '2025-01-01T00:00:00Z',
       },
     })
-    await runTranslation({
-      isLastAttempt: true,
-      payload,
-      input,
-      settings,
-      jobCreatedAt: '2025-02-01T00:00:00Z',
-    })
+    await runTranslation({ isLastAttempt: true, payload, input, settings })
     expect(records.mock.calls.at(-1)![0].data.status).toBe('done')
   })
 
-  it('treats a failed record updated during this job as a previous failure', async () => {
+  it('treats a failed record stamped with its own lock token as a previous failure', async () => {
     const { payload } = fakePayload({
       docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: null } },
       record: {
         status: 'failed',
         error: 'this job failed',
-        updatedAt: '2025-02-01T00:00:00Z',
+        lockToken: LOCK_TOKEN,
+        updatedAt: '2025-01-01T00:00:00Z',
       },
     })
     await expect(
-      runTranslation({
-        isLastAttempt: true,
-        payload,
-        input,
-        settings,
-        jobCreatedAt: '2025-02-01T00:00:00Z',
-      }),
+      runTranslation({ isLastAttempt: true, payload, input, settings }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(payload.findByID).not.toHaveBeenCalledWith(
       expect.objectContaining({ collection: 'events' }),
     )
   })
+
   it('does not send or write denied fields and preserves their previous hashes', async () => {
     const previousSubtitle = { source: 'previous-source', output: 'previous-output' }
     const { payload, update, records } = fakePayload({

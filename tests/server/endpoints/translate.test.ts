@@ -240,6 +240,25 @@ describe('POST /translator/translate', () => {
     expect(queue).not.toHaveBeenCalled()
   })
 
+  it('reports a pending record busy while the lock is held, however old its heartbeat', async () => {
+    const { req, queue } = request({
+      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+      lock: lockedSince(0),
+      records: [
+        {
+          ...recent('en', 'queued'),
+          updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+        },
+      ],
+    })
+
+    const response = await endpoint(settings(), '/translator/translate')(req)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: 'busy', busy: ['en'] })
+    expect(queue).not.toHaveBeenCalled()
+  })
+
   it('reports the requested locales busy when the lock is held but no record is pending yet', async () => {
     const { req, queue } = request({
       body: {
@@ -375,7 +394,11 @@ describe('POST /translator/translate', () => {
     expect(locks.delete).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          and: [{ id: { equals: 'l-other' } }, { token: { equals: 'other-token' } }],
+          and: [
+            { id: { equals: 'l-other' } },
+            { token: { equals: 'other-token' } },
+            { updatedAt: { less_than: expect.any(String) } },
+          ],
         },
       }),
     )

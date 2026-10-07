@@ -32,9 +32,10 @@ const needsRevalidation = (record: TranslationRecord): boolean =>
 // `revalidatePath` is either lost (the route handler already flushed its pending
 // revalidations) or throws (cron). `GET /status` is a real request that the UI polls until
 // the job finishes, so the website is notified from here. The record is marked even if the
-// hook fails, because retrying it on every poll would only fill the log. The Local API has
-// no conditional update, so the mark cannot be claimed atomically: two overlapping polls
-// can notify the same translation twice, which is why the hook must be idempotent.
+// hook fails, because retrying it on every poll would only fill the log. The mark is not
+// claimed atomically: Payload's `update` with a `where` is a find followed by an update
+// per id, not a single conditional write, so two overlapping polls can both read the
+// translation as not notified and call the hook twice, which is why it must be idempotent.
 export const notifyLiveWrites = async ({
   req,
   settings,

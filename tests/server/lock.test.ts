@@ -8,7 +8,6 @@ import {
   isLiveLock,
   LOCKS_SLUG,
   locksCollection,
-  ownsLock,
   refreshLock,
   releaseLock,
 } from '../../src/server/lock.js'
@@ -97,19 +96,34 @@ describe('acquireLock', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('deletes an expired lock by id and token and takes it over', async () => {
+  it('deletes an expired lock by id and token, only if still expired, and takes it over', async () => {
     const { payload, remove, create } = fakePayload({
       creates: [false, true],
       finds: [[lockAged(BUSY_WINDOW_MS + 1)]],
     })
+    const before = Date.now()
 
     const token = await acquireLock(payload, ref)
 
     expect(token).toEqual(expect.any(String))
     expect(remove).toHaveBeenCalledWith({
       collection: LOCKS_SLUG,
-      where: { and: [{ id: { equals: 'l1' } }, { token: { equals: 'other' } }] },
+      where: {
+        and: [
+          { id: { equals: 'l1' } },
+          { token: { equals: 'other' } },
+          { updatedAt: { less_than: expect.any(String) } },
+        ],
+      },
     })
+    // A heartbeat that landed since the lookup moves `updatedAt` past the cutoff, so the
+    // delete no longer matches a lock its holder is still using.
+    const [{ where }] = remove.mock.calls[0] as [{ where: { and: unknown[] } }]
+    const cutoff = Date.parse(
+      (where.and[2] as { updatedAt: { less_than: string } }).updatedAt.less_than,
+    )
+    expect(cutoff).toBeGreaterThanOrEqual(before - BUSY_WINDOW_MS)
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - BUSY_WINDOW_MS)
     expect(create).toHaveBeenCalledTimes(2)
   })
 
@@ -136,18 +150,7 @@ describe('acquireLock', () => {
   })
 })
 
-describe('ownsLock, refreshLock and releaseLock', () => {
-  it('owns the lock only while its token is the one stored', async () => {
-    const { payload } = fakePayload({
-      creates: [],
-      finds: [[lockAged(0, 'mine')], [lockAged(0, 'other')], []],
-    })
-
-    expect(await ownsLock(payload, ref, 'mine')).toBe(true)
-    expect(await ownsLock(payload, ref, 'mine')).toBe(false)
-    expect(await ownsLock(payload, ref, 'mine')).toBe(false)
-  })
-
+describe('refreshLock and releaseLock', () => {
   it('refreshes only the lock that still carries the token and reports a lost one', async () => {
     const held = fakePayload({ creates: [], updated: [lockAged(0, 'mine')] })
 

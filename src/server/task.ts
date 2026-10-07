@@ -44,7 +44,6 @@ export const translateTask = (
       },
       settings,
       isLastAttempt: (job.totalTried ?? 0) >= JOB_RETRIES.attempts,
-      jobCreatedAt: job.createdAt,
     })
     return { output: {} }
   },

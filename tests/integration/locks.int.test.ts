@@ -4,6 +4,7 @@ import { provider } from '../../dev/payload.config.js'
 import { ProviderError } from '../../src/index.js'
 import { BUSY_WINDOW_MS } from '../../src/server/limits.js'
 import { LOCK_LOST } from '../../src/server/localeRun.js'
+import { LOCKS_SLUG } from '../../src/server/lock.js'
 import type { Harness } from './helpers.js'
 import {
   ageLock,
@@ -157,6 +158,36 @@ describe('the per-document lock', () => {
     await drainQueue(harness)
 
     expect(await readDraftTitle(id, 'es')).toBe('[es] Taken over')
+    expect(await findLock(harness, refOf(id))).toBeUndefined()
+  })
+
+  it('does not take over a lock its holder refreshed between the lookup and the delete', async () => {
+    const id = await createPost('Refreshed')
+    expect((await queueOnly(harness, bodyOf(id))).status).toBe(202)
+    const lock = (await findLock(harness, refOf(id)))!
+    await ageLock(harness, lock, BUSY_WINDOW_MS + 1)
+    const originalDelete = harness.payload.delete.bind(harness.payload)
+    // The holder's heartbeat lands after the taker read the expired lock and before it
+    // deletes it: the delete must not match any more.
+    const remove = vi.spyOn(harness.payload, 'delete').mockImplementation((async (args: {
+      collection: string
+    }) => {
+      if (args.collection === LOCKS_SLUG) await ageLock(harness, lock, 0)
+      return originalDelete(args as never)
+    }) as never)
+
+    try {
+      expect((await translate(harness, bodyOf(id))).status).toBe(409)
+    } finally {
+      remove.mockRestore()
+    }
+
+    expect((await findLock(harness, refOf(id)))?.token).toBe(lock.token)
+    expect(await listJobs(harness)).toHaveLength(1)
+
+    await drainQueue(harness)
+
+    expect(await readDraftTitle(id, 'es')).toBe('[es] Refreshed')
     expect(await findLock(harness, refOf(id))).toBeUndefined()
   })
 

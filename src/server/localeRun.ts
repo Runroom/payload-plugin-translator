@@ -51,11 +51,22 @@ export type LocaleRun = {
 export const LOCK_LOST = 'Superseded by a newer translation request'
 
 // Extends the document lock, and stops the run when a newer request took it over: from
-// then on that request's job owns the document and nothing more may be written here.
-const assertLock = async ({ payload, input }: LocaleRun): Promise<void> => {
+// then on that request's job owns the document and its records, and nothing more may be
+// written here. Every write the job makes is preceded by this check.
+export const assertLock = async ({
+  payload,
+  input,
+}: Pick<LocaleRun, 'payload' | 'input'>): Promise<void> => {
   if (!(await refreshLock(payload, input, input.lockToken)))
     throw new LockLostError(LOCK_LOST)
 }
+
+/** The fields every record write of the job carries: which lock holder wrote it. */
+export const recordStamp = ({
+  lockToken,
+}: TranslationJobInput): { lockToken: string } => ({
+  lockToken,
+})
 
 const translatePlan = async ({
   plan,
@@ -85,7 +96,7 @@ const translatePlan = async ({
       try {
         await saveRecord(payload, {
           key: recordKeyOf(input, targetLocale),
-          data: { status: 'running' },
+          data: { status: 'running', ...recordStamp(input) },
         })
       } catch (err) {
         payload.logger.warn({ err, msg: 'Could not save the translation heartbeat' })
@@ -101,25 +112,21 @@ const translatePlan = async ({
 
 // Payload does not merge locales on save. Each save (a version or the document, depending
 // on drafts) is written whole from the latest one, so an overlapping save in another
-// locale can revert this locale's fields to their previous value.
+// locale can revert this locale's fields to their previous value. The re-read runs outside
+// any transaction: inside the write's own transaction it would only ever see the write
+// itself, while the overlapping save waits on the row locks and lands after the commit.
 const verifyWrite = async ({
   run,
   hashes,
   previous,
-  transactionID,
 }: {
   run: LocaleRun
   hashes: FieldHashes
   previous: FieldHashes
-  transactionID: TransactionID | undefined
 }): Promise<void> => {
   if (Object.keys(hashes).length === 0) return
   const { payload, input, entity, targetLocale } = run
-  const saved = await entity.read({
-    locale: targetLocale,
-    withFallback: false,
-    transactionID,
-  })
+  const saved = await entity.read({ locale: targetLocale, withFallback: false })
   const values = translatablesOf(run, saved)
   // A field only counts as verified if it holds our output. An empty field, or one with
   // other text, was overwritten between the write and this read.
@@ -129,13 +136,13 @@ const verifyWrite = async ({
   })
   if (verified.length === Object.keys(hashes).length) return
   // Save the fingerprints of the fields that were written. Otherwise, on the retry, they
-  // would match none of our fingerprints and count as edited by hand. In a real transaction
-  // this save is rolled back together with the write, which is right: nothing of ours stays.
+  // would match none of our fingerprints and count as edited by hand.
+  await assertLock(run)
   await saveVerified({
     payload,
     key: recordKeyOf(input, targetLocale),
     fields: { ...previous, ...Object.fromEntries(verified) },
-    transactionID,
+    stamp: recordStamp(input),
   })
   throw new ConcurrentEditError(
     `A concurrent edit overwrote the ${targetLocale} translation`,
@@ -146,15 +153,15 @@ const saveVerified = async ({
   payload,
   key,
   fields,
-  transactionID,
+  stamp,
 }: {
   payload: Payload
   key: RecordKey
   fields: FieldHashes
-  transactionID: TransactionID | undefined
+  stamp: { lockToken: string }
 }): Promise<void> => {
   try {
-    await saveRecord(payload, { key, data: { fields }, transactionID })
+    await saveRecord(payload, { key, data: { fields, ...stamp } })
   } catch (err) {
     payload.logger.error({ err, msg: 'Could not save the verified fingerprints' })
   }
@@ -219,9 +226,58 @@ const unchanged = (plan: TranslationPlan): Outcome => ({
   translated: false,
 })
 
-// The write, the re-read that verifies it and the record that keeps its fingerprints
-// commit together: a record save that fails must not leave our text in the document
-// without the fingerprints that say it is ours, or the retry would keep it as a hand edit.
+type Committed = { outcome: Outcome; hashes: FieldHashes; verified: boolean }
+
+// The write and the record that keeps its fingerprints commit together: a record save
+// that fails must not leave our text in the document without the fingerprints that say it
+// is ours, or the retry would keep it as a hand edit. Without a transaction there is
+// nothing to wait for, so the write is verified before the record says `done`; with one,
+// the verification comes after the commit (see `verifyWrite`).
+const writeAndRecord = async ({
+  run,
+  plan,
+  translated,
+  previous,
+  save,
+  transactionID,
+}: {
+  run: LocaleRun
+  plan: TranslationPlan
+  translated: PathWrite[]
+  previous: Previous
+  save: SaveOutcome
+  transactionID: TransactionID | undefined
+}): Promise<Committed> => {
+  const { writes, written, before } = await writeTranslation({
+    run,
+    plan,
+    writes: translated,
+    transactionID,
+  })
+  if (written === null) {
+    const outcome = unchanged(plan)
+    await save(outcome, transactionID)
+    return { outcome, hashes: {}, verified: true }
+  }
+  const hashes = hashesOf({
+    plan,
+    writes,
+    written,
+    before,
+    previous: previous.fields,
+    run,
+  })
+  const verified = transactionID === undefined
+  if (verified) await verifyWrite({ run, hashes, previous: previous.fields })
+  const outcome = {
+    hashes: { ...plan.hashes, ...hashes },
+    kept: plan.kept,
+    translated: Object.keys(hashes).length > 0,
+  }
+  await save(outcome, transactionID)
+  return { outcome, hashes, verified }
+}
+
 const commitTranslation = async ({
   run,
   plan,
@@ -234,34 +290,15 @@ const commitTranslation = async ({
   translated: PathWrite[]
   previous: Previous
   save: SaveOutcome
-}): Promise<Outcome> =>
-  inTransaction(run.payload, async transactionID => {
-    const { writes, written, before } = await writeTranslation({
-      run,
-      plan,
-      writes: translated,
-      transactionID,
-    })
-    let outcome = unchanged(plan)
-    if (written !== null) {
-      const hashes = hashesOf({
-        plan,
-        writes,
-        written,
-        before,
-        previous: previous.fields,
-        run,
-      })
-      await verifyWrite({ run, hashes, previous: previous.fields, transactionID })
-      outcome = {
-        hashes: { ...plan.hashes, ...hashes },
-        kept: plan.kept,
-        translated: Object.keys(hashes).length > 0,
-      }
-    }
-    await save(outcome, transactionID)
-    return outcome
-  })
+}): Promise<Outcome> => {
+  const { outcome, hashes, verified } = await inTransaction(run.payload, transactionID =>
+    writeAndRecord({ run, plan, translated, previous, save, transactionID }),
+  )
+  // A `done` record is already committed; if the verification finds a field reverted, the
+  // record is corrected to the fields that survived and the locale is retried.
+  if (!verified) await verifyWrite({ run, hashes, previous: previous.fields })
+  return outcome
+}
 
 export const execute = async (
   run: LocaleRun,
@@ -290,6 +327,7 @@ export const execute = async (
   })
   if (plan.translate.length === 0) {
     const outcome = unchanged(plan)
+    await assertLock(run)
     await save(outcome, undefined)
     return outcome
   }

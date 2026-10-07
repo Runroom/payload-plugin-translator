@@ -12,6 +12,7 @@ import type { Entity, EntityRef } from './entity.js'
 import { defaultLocaleOf, entityOf, localesOf } from './entity.js'
 import { BUSY_WINDOW_MS } from './limits.js'
 import { notifyLiveWrites } from './liveWrites.js'
+import { findLock, isLiveLock } from './lock.js'
 import type { TranslationRecord } from './records.js'
 import { findRecords } from './records.js'
 import type { TranslatorSettings } from './settings.js'
@@ -61,11 +62,17 @@ const staleness = ({
 export const INTERRUPTED_ERROR =
   'The translation was interrupted before it finished; you can start it again'
 
-// An expired `queued`/`running` record no longer blocks anything (`isBusy`), so the UI
-// shows it as a failure that can be retried instead of an endless "Translating…". This is
-// decided on read; `/status` never writes to the records.
-const stateOf = (record: LocaleRecord): Pick<LocaleStatus, 'state' | 'error'> => {
-  if (isPendingState(record.status) && !isBusy(record))
+// A `queued`/`running` record is still pending while the document's lock has a heartbeat:
+// the job refreshes the lock, not the records of the locales still to come, so in a long
+// job those pass the busy window before their turn. Without a live lock an expired record
+// no longer blocks anything (`isBusy`), so the UI shows it as a failure that can be
+// retried instead of an endless "Translating…". This is decided on read; `/status` never
+// writes to the records.
+const stateOf = (
+  record: LocaleRecord,
+  locked: boolean,
+): Pick<LocaleStatus, 'state' | 'error'> => {
+  if (isPendingState(record.status) && !locked && !isBusy(record))
     return { state: 'failed', error: INTERRUPTED_ERROR }
   return { state: record.status, error: record.error ?? null }
 }
@@ -74,13 +81,15 @@ const localeStatus = ({
   locale,
   record,
   comparison,
+  locked,
 }: {
   locale: string
   record: LocaleRecord | undefined
   comparison: Comparison | undefined
+  locked: boolean
 }): LocaleStatus => {
   if (!record) return untranslated(locale)
-  const { state, error } = stateOf(record)
+  const { state, error } = stateOf(record, locked)
   return {
     locale,
     state,
@@ -208,11 +217,13 @@ export const buildStatus = async ({
   const entity = config ? entityOf(payload, ref, { user: req.user ?? undefined }) : null
   if (!config || !entity) return null
   const defaultLocale = defaultLocaleOf(payload)
-  const [doc, records] = await Promise.all([
+  const [doc, records, lock] = await Promise.all([
     entity.find({ locale: defaultLocale }),
     findRecords(payload, ref),
+    findLock(payload, ref),
   ])
   if (!doc) return null
+  const locked = lock !== null && isLiveLock(lock)
   const done = records.filter(item => item.status === 'done')
   // A finished record without `sourceLocale` is compared with the default locale.
   const sourceLocaleOf = (record: LocaleRecord): string =>
@@ -240,6 +251,7 @@ export const buildStatus = async ({
         locale,
         record: records.find(item => item.targetLocale === locale),
         comparison: compared.get(locale),
+        locked,
       }),
     ),
   }
