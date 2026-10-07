@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "Runroom/payload-plugin-translator" }
+  ],
+  "commit": false,
+  "access": "public",
+  "baseBranch": "main"
+}

@@ -399,6 +399,15 @@ pnpm check:package   # publint + arethetypeswrong on the packed package
 `prepack` rebuilds it before packing. A `dev/` Payload app to try the plugin end to end
 (as in Payload's plugin template) is still to be added.
 
+### Releasing
+
+Releases go through [Changesets](https://github.com/changesets/changesets). A pull request
+that changes what users get adds a changeset with `pnpm changeset` (see
+`.changeset/README.md`). On every push to `main`, the `Release` workflow opens or updates
+a "Version Packages" pull request; merging it publishes the new version to npm with
+provenance and creates the git tag and GitHub release. Nobody publishes from a local
+machine.
+
 ## License
 
 MIT © Runroom

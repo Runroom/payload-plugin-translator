@@ -63,7 +63,9 @@
     "prepublishOnly": "pnpm lint && pnpm test",
     "prepare": "pnpm build",
     "prepack": "pnpm build",
-    "check:package": "publint --strict && attw --pack . --profile esm-only"
+    "check:package": "publint --strict && attw --pack . --profile esm-only",
+    "changeset": "changeset",
+    "release": "changeset publish"
   },
   "peerDependencies": {
     "@payloadcms/ui": "^3.90.2",
@@ -78,6 +80,8 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
+    "@changesets/changelog-github": "1.0.1",
+    "@changesets/cli": "3.0.3",
     "@payloadcms/ui": "3.90.2",
     "@swc/cli": "0.8.1",
     "@swc/core": "1.16.2",
@@ -106,6 +110,7 @@
   },
   "packageManager": "pnpm@11.0.6",
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }
