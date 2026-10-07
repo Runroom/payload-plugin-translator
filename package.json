@@ -94,6 +94,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "copyfiles": "2.4.1",
+    "esbuild": "0.28.2",
     "jsdom": "30.0.1",
     "openai": "7.23.0",
     "oxfmt": "0.70.0",
