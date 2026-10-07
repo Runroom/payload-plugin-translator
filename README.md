@@ -396,8 +396,11 @@ pnpm check:package   # publint + arethetypeswrong on the packed package
 ```
 
 `exports` point at `dist/`: `prepare` builds it when the package is installed from git and
-`prepack` rebuilds it before packing. A `dev/` Payload app to try the plugin end to end
-(as in Payload's plugin template) is still to be added.
+`prepack` rebuilds it before packing. `dev/payload.config.ts` is a minimal Payload config
+with the plugin installed (SQLite in a temp file, Lexical, `en`/`es`/`fr`, the fake
+provider). The integration tests in `tests/integration/` boot it with the Local API and
+run real translations through the endpoints and the jobs queue, so a Payload upgrade that
+breaks what the plugin relies on fails `pnpm test`.
 
 ### Releasing
 

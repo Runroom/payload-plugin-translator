@@ -6,3 +6,10 @@ allowBuilds:
 # min-release-age on, pnpm 11.0.6 then aborts the install with ERR_PNPM_MISSING_TIME.
 # This flag limits the damage to a warning.
 minimumReleaseAgeIgnoreMissingTime: true
+
+# Lexical publishes a nightly every day, so the abbreviated metadata of its packages always
+# has a recent `modified` date and no `time` field, and pnpm 11.0.6 aborts on them even
+# with the flag above. The lockfile pins versions published long before the cutoff.
+minimumReleaseAgeExclude:
+  - lexical
+  - '@lexical/*'

@@ -17,6 +17,7 @@
     "noEmit": true
   },
   "include": [
+    "dev/**/*.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
     "tests/**/*.ts",
