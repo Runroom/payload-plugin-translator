@@ -18,8 +18,8 @@ type LocaleRecord = TranslationRecord & { targetLocale: string }
 
 type Translatables = TranslatableValue[]
 
-// An in-progress record whose process died stays `running` forever; after this window it
-// stops blocking a new translation.
+// A record whose process died stays `running` forever, so it stops blocking a new
+// translation once the busy window has passed.
 export const isBusy = (
   record: Pick<TranslationRecord, 'status' | 'updatedAt'> | undefined,
 ): boolean =>
@@ -39,7 +39,7 @@ const untranslated = (locale: string): LocaleStatus => ({
   kept: 0,
 })
 
-// Only a finished locale is compared with its source; for the rest there is nothing to measure.
+// Only finished locales are compared with their source; the rest have nothing to measure.
 const staleness = ({
   record,
   source,
@@ -58,9 +58,9 @@ const staleness = ({
 export const INTERRUPTED_ERROR =
   'The translation was interrupted before it finished; you can start it again'
 
-// An expired `queued`/`running` record no longer blocks anything (`isBusy`), so for the UI
-// it is a failure that can be retried, not an endless "Translating…". It is decided on
-// read: `/status` does not write to the records.
+// An expired `queued`/`running` record no longer blocks anything (`isBusy`), so the UI
+// shows it as a failure that can be retried instead of an endless "Translating…". This is
+// decided on read; `/status` never writes to the records.
 const stateOf = (record: LocaleRecord): Pick<LocaleStatus, 'state' | 'error'> => {
   if (isPendingState(record.status) && !isBusy(record))
     return { state: 'failed', error: INTERRUPTED_ERROR }
@@ -103,9 +103,9 @@ const readerOf =
       permissions,
     })
 
-// Each finished locale is compared with the text of the locale it was translated from,
-// which is read only once even if several share it; the target is read without fallback so
-// that a field emptied by hand counts as empty.
+// Each finished locale is compared with the text of the locale it was translated from, read
+// once even when several locales share it. Targets are read without fallback so a field
+// emptied by hand counts as empty.
 const readComparisons = async ({
   read,
   done,
@@ -164,14 +164,13 @@ export const buildStatus = async ({
     findRecords(payload, ref),
   ])
   if (!doc) return null
-  // Without the right to read the document, no status either: for the requester, it does
-  // not exist.
+  // A requester who cannot read the document gets no status, as if it did not exist.
   const permissions = await docPermissions({ req, ref })
   if (!permissions.read) return null
   if (entity.writesLive) await notifyLiveWrites({ req, settings, ref, records })
   const done = records.filter(item => item.status === 'done')
-  // With read permission already checked: the versions are read with the Local API's
-  // access, like the document itself.
+  // Read permission is checked above, so the versions are read with the Local API's
+  // default access, like the document itself.
   const [{ sourceOf, targets }, lastPublishedAt] = await Promise.all([
     readComparisons({
       read: readerOf(entity, payload.config.blocks ?? [], permissions.fields),

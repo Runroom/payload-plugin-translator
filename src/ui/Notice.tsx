@@ -45,7 +45,7 @@ const Icon = ({ icon }: { icon: NoticeIcon }): ReactElement =>
     </svg>
   )
 
-// With `srText`, the visible text is a short label and the screen reader reads the full
+// With `srText`, the visible text is a short label and screen readers read the full
 // sentence instead.
 export const Notice = ({
   id,

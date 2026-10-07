@@ -4,8 +4,8 @@ import { isPendingState } from '../shared/api.js'
 
 type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
 
-// i18next resolves `key_one`/`key_other` from `key` plus `count`, so the plural forms
-// are addressed by their base name.
+// i18next resolves `key_one`/`key_other` from `key` plus `count`, so plural forms are
+// referenced by their base name.
 type WithoutPlural<K extends string> = K extends `${infer Base}_${PluralSuffix}`
   ? Base
   : K
@@ -21,7 +21,7 @@ export type Translate = (
 
 export type Message = { key: TranslatorKey; vars?: Record<string, unknown> }
 
-// Without a reason, the sentence with `{{error}}` would be left hanging on the colon.
+// Without a reason, the `{{error}}` sentence would end on a dangling colon.
 export const failedMessage = (error: string | null): Message =>
   error
     ? { key: 'translator:failed', vars: { error } }

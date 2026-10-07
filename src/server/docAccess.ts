@@ -15,10 +15,10 @@ export type DocPermissions = {
 
 const NONE: DocPermissions = { read: false, update: false, fields: {} }
 
-// Passing the plugin's `access` grants the right to use the translator, not to touch any
-// document: what decides per document is the `access` of its collection or global, with
-// the request's user, just as the admin does. `docAccessOperation` reads the document and
-// also resolves the `access` functions that return a `where`.
+// The plugin's `access` only grants use of the translator, not access to any document.
+// Each document is governed by the `access` of its collection or global, evaluated with the
+// request's user as the admin does. `docAccessOperation` reads the document, so it also
+// resolves `access` functions that return a `where`.
 export const docPermissions = async ({
   req,
   ref,

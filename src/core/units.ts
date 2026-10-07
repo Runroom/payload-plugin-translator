@@ -1,21 +1,21 @@
 import { extractContainers, isLexicalState, replaceContainers } from './lexical.js'
 import type { TranslatableValue } from './types.js'
 
-// What is sent to the provider for a value: a `text` field is one unit and a `richText`
-// field, one per paragraph (container), with its formatting as numbered marks.
+// The texts sent to the provider for a value: one unit for a `text` field, and one per
+// paragraph (container) for a `richText` field, with its formatting as numbered marks.
 export const unitsOf = ({ kind, value }: TranslatableValue): string[] => {
   if (kind === 'richText') return isLexicalState(value) ? extractContainers(value) : []
   return typeof value === 'string' && value.trim() !== '' ? [value.trim()] : []
 }
 
-// The id of each unit in the provider request: the path for a `text` field, and the path
-// plus the paragraph index (`path#0`, `path#1`…) for a `richText` one.
+// Unit ids in the provider request: the path for a `text` field, and the path plus the
+// paragraph index (`path#0`, `path#1`…) for a `richText` field.
 export const unitIdsOf = (value: TranslatableValue): [string, string][] => {
   if (value.kind === 'text') return [[value.path, unitsOf(value)[0] ?? '']]
   return unitsOf(value).map((text, index) => [`${value.path}#${index}`, text])
 }
 
-// Rebuilds the value from the translated units, by the ids `unitIdsOf` gave them.
+// Rebuilds the value from the translated units, looked up by the ids from `unitIdsOf`.
 export const translatedValue = (
   value: TranslatableValue,
   result: Map<string, string>,

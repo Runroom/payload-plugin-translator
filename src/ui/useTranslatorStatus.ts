@@ -7,7 +7,7 @@ import { STATUS_PATH } from '../shared/api.js'
 import { deniesAccess, isInFlight, isRunning, requestStatus } from './statusRequest.js'
 import { usePolling } from './usePolling.js'
 
-// Other UI files import these from here.
+// Re-exported for the UI modules that import them from this hook.
 export { isInFlight, isRunning }
 
 const INITIAL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000]
@@ -25,9 +25,9 @@ const wait = (ms: number, signal: AbortSignal): Promise<void> =>
     )
   })
 
-// 403/404 are the access answer (a user without access, a collection without the
-// translator) and hide the control without retrying; any other failure is retried with
-// backoff and, once the attempts run out, the control stays hidden until a reload.
+// A 403/404 (a user without access, a collection without the translator) hides the control
+// without retrying. Other failures are retried with backoff, and once the attempts run out
+// the control stays hidden until a reload.
 const loadInitialStatus = async (
   url: string,
   signal: AbortSignal,
@@ -50,9 +50,8 @@ const markQueued = (status: StatusResponse, locales: string[]): StatusResponse =
   ),
 })
 
-// `seen` are the locales seen queued or translating during this visit, whoever started
-// them: when they finish they are the ones that become "ready" and ask to reload their
-// form.
+// `seen` holds the locales seen queued or translating during this visit, whoever started
+// them. When they finish, these are the locales that become "ready" and ask for a reload.
 const useStatusState = (): {
   status: StatusResponse | null
   seen: string[]
@@ -88,9 +87,9 @@ const useStatusState = (): {
   return { status, seen, apply, queueLocales, resetSeen }
 }
 
-// Each request gets a number when it is sent and is only applied if it is later than the
-// last one applied: a slow `refresh()` cannot bring back "Translating…" over a newer poll
-// that already said "ready".
+// Each request is numbered when sent and only applied if it is newer than the last one
+// applied, so a slow `refresh()` cannot bring back "Translating…" over a newer poll that
+// already said "ready".
 const useSequence = (): (() => () => boolean) => {
   const issued = useRef(0)
   const applied = useRef(0)
@@ -124,14 +123,15 @@ export const useTranslatorStatus = ({
   const url = target ? `${apiBase}${STATUS_PATH}?${new URLSearchParams(target)}` : null
 
   const queuedAt = useRef(0)
-  // Another document: what was seen running on the previous one says nothing here.
+  // On another document, what was seen running on the previous one no longer applies.
   useEffect(() => {
     resetSeen()
     queuedAt.current = 0
   }, [url, resetSeen])
 
-  // If it fails, polling the queued locales goes on and brings the real status. A response
-  // requested before the last `markQueued` predates the queued records and is discarded.
+  // Failures are ignored because polling the queued locales goes on and brings the real
+  // status. A response requested before the last `markQueued` predates the queued records
+  // and is discarded.
   const refresh = useCallback(async (): Promise<void> => {
     if (!url) return
     const requestedAt = queuedAt.current
@@ -143,7 +143,7 @@ export const useTranslatorStatus = ({
   }, [url, apply, next])
 
   // The server has already created the queued records when it answers 202, but the
-  // previous status still says `none`/`done`: without this step the control would announce
+  // current status still says `none`/`done`. Without this step the control would announce
   // a false "ready" and polling would not start.
   const queue = useCallback(
     (locales: string[]): void => {
@@ -153,7 +153,7 @@ export const useTranslatorStatus = ({
     [queueLocales],
   )
 
-  // When aborted (the URL changed or the component unmounted), the load returns `null`:
+  // An aborted load (the URL changed or the component unmounted) returns `null`, and
   // applying it would hide the control until the new URL's load arrives.
   useEffect(() => {
     if (!url) return

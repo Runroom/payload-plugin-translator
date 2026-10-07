@@ -11,7 +11,7 @@ const MAX_FAILED_POLLS = 5
 
 const increment = (count: number): number => count + 1
 
-// A 403/404 is one more state (`null`: no access); any other failure is transient.
+// A 403/404 is a valid answer (`null`, no access); any other failure is transient.
 const pollStatus = async (
   url: string,
   signal: AbortSignal,
@@ -24,10 +24,10 @@ const pollStatus = async (
   }
 }
 
-// A transient poll failure keeps the last status; `failedPolls` fires the effect again
-// even though `status` did not change. 403/404 are the access answer (expired session,
-// permission revoked): they hide the control as in the initial load, and that stops the
-// polling. After `MAX_FAILED_POLLS` consecutive failures it stops and offers a retry.
+// A transient poll failure keeps the last status; bumping `failedPolls` re-runs the effect
+// even though `status` did not change. A 403/404 (expired session, revoked permission)
+// hides the control as on the initial load, which also stops polling. After
+// `MAX_FAILED_POLLS` consecutive failures polling stops and a retry is offered.
 export const usePolling = ({
   url,
   status,

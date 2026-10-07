@@ -11,8 +11,8 @@ type Args = {
   sourceLocale: string
   targetLocale: string
   instructions: string
-  // Which units carry marks (the `richText` ones); a literal `<2>` in a `text` field is not
-  // formatting and must not fail the check. All of them by default.
+  // Which units carry marks (the `richText` ones), so a literal `<2>` in a `text` field
+  // does not fail the mark check. Defaults to every unit.
   withMarks?: (id: string) => boolean
   onBatch?: () => Promise<void>
 }
@@ -64,8 +64,8 @@ const translateAll = async (
   return result
 }
 
-// A blank answer for a unit with text would empty the target field; for a plain text unit
-// nothing else catches it, since it has no marks to compare.
+// A blank answer for a unit with text would empty the target field. For a plain text unit
+// nothing else catches it, since there are no marks to compare.
 const isBlankFor = (source: string, text: string): boolean =>
   source.trim() !== '' && text.trim() === ''
 
@@ -84,7 +84,7 @@ const brokenIn = (
   })
 
 export const translateUnits = async (args: Args): Promise<Map<string, string>> => {
-  // A plan with only unit-less rich text (uploads, blocks) is rebuilt from the source alone.
+  // Rich text without units (only uploads or blocks) is rebuilt from the source alone.
   if (args.units.size === 0) return new Map()
   const result = await translateAll(args, [...args.units])
   const broken = brokenIn(args, args.units, result)

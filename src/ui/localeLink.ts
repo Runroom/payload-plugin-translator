@@ -4,11 +4,10 @@ import type { EntityQuery } from '../shared/api.js'
 
 export type LocaleLink = { href: string; newTab: boolean }
 
-// On the document page changing `?locale=` in the current URL is enough. In a relationship
-// drawer (`editDepth > 1`) the current URL is the parent document's: the document's own URL
-// is built as Payload does (`formatAdminURL` + `/collections/…` or `/globals/…`) and opened
-// in another tab, because navigating here would close the parent with whatever it has
-// unsaved.
+// On the document page, changing `?locale=` in the current URL is enough. In a relationship
+// drawer (`editDepth > 1`) the current URL belongs to the parent document, so the link is
+// built as Payload does (`formatAdminURL` + `/collections/…` or `/globals/…`) and opened in
+// a new tab; navigating away would close the parent and lose its unsaved changes.
 export const localeLinkOf =
   ({
     editDepth,

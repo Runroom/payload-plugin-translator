@@ -26,8 +26,8 @@ type DrawerProps = {
   send: SendTranslation
 }
 
-// Payload's `Drawer` leaves the dialog with an `aria-label` equal to the slug, which is
-// what the screen reader would announce; it is pointed at the visible title instead.
+// Payload's `Drawer` gives the dialog an `aria-label` equal to the slug, which is what
+// screen readers would announce, so the dialog is labelled by the visible title instead.
 const DrawerHeader = ({
   slug,
   title,
@@ -56,17 +56,18 @@ const DrawerHeader = ({
   )
 }
 
-// The bar's live region is outside the `<dialog aria-modal>` and some screen readers
-// announce nothing outside the modal: while the drawer is open, this one announces.
+// The bar's live region is outside the `<dialog aria-modal>`, and some screen readers
+// announce nothing outside the modal, so this region takes over while the drawer is open.
 const Summary = ({ messages }: Pick<DrawerProps, 'messages'>): ReactElement => (
   <div role="status" className="rr-translator__summary">
     <MessageList messages={messages} />
   </div>
 )
 
-// Always with the primary look: a grey button with no locales checked looked broken. It only
-// looks inactive with a translation in progress, and then it says why. `aria-disabled` and
-// not `disabled`: the pressed button keeps the focus inside the drawer while sending.
+// Always styled as primary, because a grey button with no locales checked looked broken.
+// It only looks inactive while a translation is in progress, and then a hint says why. It
+// uses `aria-disabled` rather than `disabled` so the pressed button keeps the focus inside
+// the drawer while sending.
 const SubmitFooter = ({
   busy,
   messages,
@@ -107,8 +108,8 @@ const SubmitFooter = ({
   )
 }
 
-// Mounted only while the drawer is open: the selection and the options start from scratch
-// every time, and the status is fetched again in case the source changed without a reload.
+// Mounted only while the drawer is open, so the selection and options start fresh every
+// time and the status is fetched again in case the source changed without a reload.
 const DrawerBody = ({
   status,
   translated,
@@ -136,8 +137,9 @@ const DrawerBody = ({
   return (
     <div className="rr-translator__drawer">
       {notice}
-      {/* Where the translation ends up, before the locales: "Retry" writes too, and in the
-          tab order the notice has to come before the first button. */}
+      {/* The notice saying where the translation is written comes before the locales,
+          because "Retry" writes too and the notice must precede the first button in the
+          tab order. */}
       {status.writesLive ? (
         <Notice id={modeDescription} tone="warning" icon="warning">
           {t('translator:writesLive')}

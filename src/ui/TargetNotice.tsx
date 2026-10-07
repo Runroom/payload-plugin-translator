@@ -10,26 +10,26 @@ import { failedMessage } from './messages.js'
 import { reloadPage } from './reloadPage.js'
 import { isInFlight } from './useTranslatorStatus.js'
 
-// It lives in the controls bar, where a second line clips Payload's metadata: the visible
-// text is short and the full sentence goes to the screen reader (and to the drawer, for the
-// translation in progress).
+// The notice for the open locale lives in the controls bar, where a second line would clip
+// Payload's metadata. Its visible text is short; the full sentence goes to screen readers
+// (and, for a translation in progress, to the drawer).
 //
-// It follows the state of the open locale, not the batch's: "ready" shows as soon as its
-// translation finishes even if another locale is still in progress. `sourceLocale` is the
-// locale this one was translated from, which is what it is out of date against.
+// It follows the state of the open locale, not of the batch, so "ready" shows as soon as
+// this locale finishes even if another one is still in progress. `sourceLocale` is the
+// locale this one was translated from, which staleness is measured against.
 type Props = {
   item: LocaleStatus
   seen: string[]
   unpublishedDraft: boolean
   sourceLocale: string
   sourceLabel: string
-  // `false` in a nested drawer: reloading the page would reload the parent document.
+  // `false` in a nested drawer, where reloading the page would reload the parent document.
   canReload: boolean
 }
 
-// Reloading is the only way for the open form to get the translated text; saving without
-// it makes the old form overwrite the translation. That is why it is a warning and not a
-// success.
+// Reloading is the only way for the open form to get the translated text, and saving
+// without reloading makes the old form overwrite the translation. That is why this is a
+// warning and not a success.
 const ReadyNotice = ({ canReload }: Pick<Props, 'canReload'>): ReactElement => {
   const { t } = useTranslator()
   return (
@@ -96,7 +96,7 @@ const StaleNotice = ({
 }
 
 // A failure of the open locale is always reported, whether or not it was seen during this
-// visit: also that of an interrupted translation, which is only discovered on coming back.
+// visit. That includes an interrupted translation, which is only discovered on coming back.
 export const TargetNotice = ({
   item,
   seen,

@@ -55,8 +55,8 @@ const translatePlan = async ({
     targetLocale,
     instructions: settings.instructions({ sourceLocale, targetLocale }),
     withMarks: id => withMarks.has(id),
-    // The heartbeat only extends the lock's life: losing it does not justify throwing away
-    // what was translated.
+    // The heartbeat only extends the lock, so a failed save is not worth discarding what
+    // was already translated.
     onBatch: async () => {
       try {
         await saveRecord(payload, {
@@ -87,9 +87,9 @@ const translatablesOf = (
     permissions: restricted ? run.input.fieldPermissions : true,
   })
 
-// A field the requester may not touch is left out of the plan, but it still exists: its
-// fingerprints stay, or the next request by someone who may touch it would take its text
-// for a hand edit. Paths that no longer exist (a removed row) are dropped as before.
+// Fields the requester may not touch are left out of the plan but keep their fingerprints;
+// otherwise the next request by someone who may touch them would treat their text as a
+// hand edit. Paths that no longer exist (a removed row) are still dropped.
 const keepHiddenHashes = ({
   run,
   sourceDoc,
@@ -108,9 +108,9 @@ const keepHiddenHashes = ({
   }
 }
 
-// The `output` fingerprint comes from what Payload saved, not from what was sent: a
-// `beforeChange` hook that normalizes the value (a `formatSlug`) would leave the
-// fingerprint never matching, and on the retry the field would become "edited by hand".
+// The `output` fingerprint comes from what Payload saved, not from what was sent. If a
+// `beforeChange` hook normalizes the value (a `formatSlug`), a fingerprint of the sent
+// value would never match, and the next run would treat the field as edited by hand.
 const hashesOf = ({
   plan,
   writes,
@@ -135,9 +135,9 @@ const hashesOf = ({
   return hashes
 }
 
-// Payload does not merge locales on save: each save (a version or the document, depending
-// on drafts) is written whole from the latest one, so a save in another locale that
-// overlaps ours can return this locale's fields to their previous value.
+// Payload does not merge locales on save. Each save (a version or the document, depending
+// on drafts) is written whole from the latest one, so an overlapping save in another
+// locale can revert this locale's fields to their previous value.
 const verifyWrite = async ({
   run,
   hashes,
@@ -150,15 +150,15 @@ const verifyWrite = async ({
   const { payload, input, entity, targetLocale } = run
   const saved = await entity.read({ locale: targetLocale, withFallback: false })
   const values = translatablesOf(run, saved)
-  // A translated field that ended up empty does not count as verified: if what is there is
-  // not our text, someone overwrote it between the write and this read.
+  // A field only counts as verified if it holds our output. An empty field, or one with
+  // other text, was overwritten between the write and this read.
   const verified = Object.entries(hashes).filter(([path, { output }]) => {
     const value = values.find(item => item.path === path)
     return output !== null && (value ? fingerprintOf(value) : null) === output
   })
   if (verified.length === Object.keys(hashes).length) return
-  // Without this, on the retry the fields that did get written would match none of our
-  // fingerprints and would become "edited by hand".
+  // Save the fingerprints of the fields that were written. Otherwise, on the retry, they
+  // would match none of our fingerprints and count as edited by hand.
   await saveVerified({
     payload,
     key: recordKeyOf(input, targetLocale),
@@ -185,10 +185,9 @@ const saveVerified = async ({
   }
 }
 
-// The target is read again right before writing: the provider calls happen between the
-// planning and this point, and groups are sent whole, so a stale snapshot would return to
-// their previous value the non-localized data that an import or an editor changed in the
-// meantime.
+// Re-read the target right before writing. The provider calls happen between planning and
+// this point, and groups are sent whole, so a stale snapshot would revert non-localized
+// data that an import or an editor changed in the meantime.
 const writeTranslation = async ({
   run,
   writes,

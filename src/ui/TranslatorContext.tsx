@@ -27,7 +27,7 @@ export const TranslatorProvider = ({
   <TranslatorContext.Provider value={value}>{children}</TranslatorContext.Provider>
 )
 
-// What every component of the control reads instead of receiving it prop by prop.
+// Shared values every component of the control reads.
 export const useTranslator = (): TranslatorContextValue => {
   const value = useContext(TranslatorContext)
   if (!value) throw new Error('useTranslator must be used inside a TranslatorProvider')
