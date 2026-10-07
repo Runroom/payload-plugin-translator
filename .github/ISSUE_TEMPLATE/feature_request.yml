@@ -1,0 +1,18 @@
+name: Feature request
+description: A change or a new option you would like the plugin to have.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and why the plugin does not let you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description:
+        How you would like it to work, from the point of view of your config or your
+        editors.

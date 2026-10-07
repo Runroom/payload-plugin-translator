@@ -1,0 +1,35 @@
+name: Bug report
+description: Something does not work as the README says it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >-
+        The smallest config that shows it: the collection or global, its localized fields,
+        the plugin options and the steps in the admin.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Plugin, Payload, database adapter and Node.
+      placeholder: 'plugin 0.1.0, payload 3.90.2, db-postgres 3.90.2, Node 24'
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or errors
+      description: Server log lines and the error shown in the translator drawer, if any.
+      render: text
