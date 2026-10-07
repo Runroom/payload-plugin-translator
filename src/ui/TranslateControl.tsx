@@ -19,6 +19,7 @@ import { TargetNotice } from './TargetNotice.js'
 import { TranslateButton } from './TranslateButton.js'
 import { TranslateDrawer } from './TranslateDrawer.js'
 import { TranslateStatus } from './TranslateStatus.js'
+import { TranslatorProvider, useTranslator } from './TranslatorContext.js'
 import { localeLinkOf } from './localeLink.js'
 import type { Message, Translate, TranslatorKey } from './messages.js'
 import { summaryMessages } from './messages.js'
@@ -77,26 +78,23 @@ const translatedAfterPublishing = ({
 
 const STATUS_UNAVAILABLE: Message = { key: 'translator:statusUnavailable' }
 
-const StalledNotice = ({
-  onRetry,
-  t,
-}: {
-  onRetry: () => void
-  t: Translate
-}): ReactElement => (
-  <Notice
-    tone="warning"
-    icon="warning"
-    srText={t(STATUS_UNAVAILABLE.key)}
-    action={
-      <Button buttonStyle="secondary" size="small" margin={false} onClick={onRetry}>
-        {t('translator:retry')}
-      </Button>
-    }
-  >
-    {t('translator:statusUnavailableShort')}
-  </Notice>
-)
+const StalledNotice = ({ onRetry }: { onRetry: () => void }): ReactElement => {
+  const { t } = useTranslator()
+  return (
+    <Notice
+      tone="warning"
+      icon="warning"
+      srText={t(STATUS_UNAVAILABLE.key)}
+      action={
+        <Button buttonStyle="secondary" size="small" margin={false} onClick={onRetry}>
+          {t('translator:retry')}
+        </Button>
+      }
+    >
+      {t('translator:statusUnavailableShort')}
+    </Notice>
+  )
+}
 
 const unpublishedDraftOf = ({
   status,
@@ -175,61 +173,52 @@ export const TranslateControl = (): ReactElement | null => {
   const messages = stalled && !request.notice ? [STATUS_UNAVAILABLE] : summary
 
   return (
-    <div className="rr-translator">
-      {stalled ? <StalledNotice onRetry={retry} t={translate} /> : null}
-      <TargetNotice
-        item={current}
-        seen={seen}
-        unpublishedDraft={unpublishedDraftOf({
-          status,
-          item: current,
-          documentInfo: { hasPublishedDoc, unpublishedVersionCount },
-        })}
-        sourceLocale={sourceOf(current)}
-        sourceLabel={sourceLabelOf(current)}
-        linkOf={linkOf}
-        canReload={editDepth <= 1}
-        t={translate}
-      />
-      <TranslateButton
-        locales={others}
-        busy={busy}
-        language={i18n.language}
-        onClick={() => {
-          request.clearNotice()
-          openModal(drawerSlug)
-        }}
-        t={translate}
-      />
-      <TranslateStatus
-        messages={messages}
-        silenced={isModalOpen(drawerSlug)}
-        t={translate}
-      />
-      <TranslateDrawer
-        slug={drawerSlug}
-        title={translate('translator:drawerTitle', {
-          source: labelOf(locale.code),
-        })}
-        status={{ ...status, locales: others }}
-        translated={[...new Set([...request.translated, ...seen])]}
-        busy={busy}
-        notice={
-          isInFlight(current) ? (
-            <Notice tone="info" icon="progress">
-              {translate('translator:translatingThisLocale')}
-            </Notice>
-          ) : null
-        }
-        messages={messages}
-        labelOf={labelOf}
-        sourceLabelOf={sourceLabelOf}
-        language={i18n.language}
-        linkOf={linkOf}
-        refresh={refresh}
-        send={request.send}
-        t={translate}
-      />
-    </div>
+    <TranslatorProvider
+      value={{ t: translate, language: i18n.language, labelOf, sourceLabelOf, linkOf }}
+    >
+      <div className="rr-translator">
+        {stalled ? <StalledNotice onRetry={retry} /> : null}
+        <TargetNotice
+          item={current}
+          seen={seen}
+          unpublishedDraft={unpublishedDraftOf({
+            status,
+            item: current,
+            documentInfo: { hasPublishedDoc, unpublishedVersionCount },
+          })}
+          sourceLocale={sourceOf(current)}
+          sourceLabel={sourceLabelOf(current)}
+          canReload={editDepth <= 1}
+        />
+        <TranslateButton
+          locales={others}
+          busy={busy}
+          onClick={() => {
+            request.clearNotice()
+            openModal(drawerSlug)
+          }}
+        />
+        <TranslateStatus messages={messages} silenced={isModalOpen(drawerSlug)} />
+        <TranslateDrawer
+          slug={drawerSlug}
+          title={translate('translator:drawerTitle', {
+            source: labelOf(locale.code),
+          })}
+          status={{ ...status, locales: others }}
+          translated={[...new Set([...request.translated, ...seen])]}
+          busy={busy}
+          notice={
+            isInFlight(current) ? (
+              <Notice tone="info" icon="progress">
+                {translate('translator:translatingThisLocale')}
+              </Notice>
+            ) : null
+          }
+          messages={messages}
+          refresh={refresh}
+          send={request.send}
+        />
+      </div>
+    </TranslatorProvider>
   )
 }

@@ -5,8 +5,7 @@ import type { ReactElement } from 'react'
 
 import type { LocaleStatus } from '../shared/api.js'
 import { Notice } from './Notice.js'
-import type { LocaleLink } from './localeLink.js'
-import type { Translate } from './messages.js'
+import { useTranslator } from './TranslatorContext.js'
 import { failedMessage } from './messages.js'
 import { reloadPage } from './reloadPage.js'
 import { isInFlight } from './useTranslatorStatus.js'
@@ -24,44 +23,46 @@ type Props = {
   unpublishedDraft: boolean
   sourceLocale: string
   sourceLabel: string
-  linkOf: (locale: string) => LocaleLink | null
   // `false` in a nested drawer: reloading the page would reload the parent document.
   canReload: boolean
-  t: Translate
 }
 
 // Reloading is the only way for the open form to get the translated text; saving without
 // it makes the old form overwrite the translation. That is why it is a warning and not a
 // success.
-const ReadyNotice = ({ canReload, t }: Pick<Props, 'canReload' | 't'>): ReactElement => (
-  <Notice
-    tone="warning"
-    icon="warning"
-    srText={t(
-      canReload ? 'translator:readyThisLocale' : 'translator:readyNestedThisLocale',
-    )}
-    action={
-      canReload ? (
-        <Button buttonStyle="secondary" size="small" margin={false} onClick={reloadPage}>
-          {t('translator:reload')}
-        </Button>
-      ) : null
-    }
-  >
-    {t(canReload ? 'translator:readyShort' : 'translator:readyNestedShort')}
-  </Notice>
-)
+const ReadyNotice = ({ canReload }: Pick<Props, 'canReload'>): ReactElement => {
+  const { t } = useTranslator()
+  return (
+    <Notice
+      tone="warning"
+      icon="warning"
+      srText={t(
+        canReload ? 'translator:readyThisLocale' : 'translator:readyNestedThisLocale',
+      )}
+      action={
+        canReload ? (
+          <Button
+            buttonStyle="secondary"
+            size="small"
+            margin={false}
+            onClick={reloadPage}
+          >
+            {t('translator:reload')}
+          </Button>
+        ) : null
+      }
+    >
+      {t(canReload ? 'translator:readyShort' : 'translator:readyNestedShort')}
+    </Notice>
+  )
+}
 
 const StaleNotice = ({
   item,
   sourceLocale,
   sourceLabel,
-  linkOf,
-  t,
-}: Pick<
-  Props,
-  'item' | 'sourceLocale' | 'sourceLabel' | 'linkOf' | 't'
->): ReactElement => {
+}: Pick<Props, 'item' | 'sourceLocale' | 'sourceLabel'>): ReactElement => {
+  const { t, linkOf } = useTranslator()
   const link = linkOf(sourceLocale)
   return (
     <Notice
@@ -102,10 +103,9 @@ export const TargetNotice = ({
   unpublishedDraft,
   sourceLocale,
   sourceLabel,
-  linkOf,
   canReload,
-  t,
 }: Props): ReactElement | null => {
+  const { t } = useTranslator()
   if (item.state === 'none') return null
   if (isInFlight(item)) {
     return (
@@ -122,16 +122,10 @@ export const TargetNotice = ({
       </Notice>
     )
   }
-  if (seen.includes(item.locale)) return <ReadyNotice canReload={canReload} t={t} />
+  if (seen.includes(item.locale)) return <ReadyNotice canReload={canReload} />
   if (item.stale) {
     return (
-      <StaleNotice
-        item={item}
-        sourceLocale={sourceLocale}
-        sourceLabel={sourceLabel}
-        linkOf={linkOf}
-        t={t}
-      />
+      <StaleNotice item={item} sourceLocale={sourceLocale} sourceLabel={sourceLabel} />
     )
   }
   if (!unpublishedDraft) return null

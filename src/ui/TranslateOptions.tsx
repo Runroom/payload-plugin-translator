@@ -3,7 +3,7 @@
 import type { ReactElement } from 'react'
 import { useId } from 'react'
 
-import type { Translate } from './messages.js'
+import { useTranslator } from './TranslatorContext.js'
 import type {
   TranslateOptionDefinition,
   TranslateOptionId,
@@ -14,13 +14,12 @@ export const TranslateOptions = ({
   definitions,
   values,
   onChange,
-  t,
 }: {
   definitions: TranslateOptionDefinition[]
   values: TranslateOptionValues
   onChange: (id: TranslateOptionId, value: boolean) => void
-  t: Translate
 }): ReactElement => {
+  const { t } = useTranslator()
   const baseId = useId()
   return (
     <fieldset className="rr-translator__section">

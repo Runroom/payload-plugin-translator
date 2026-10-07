@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { TranslateControl } from '../../../src/ui/TranslateControl.js'
 import { TranslateOptions } from '../../../src/ui/TranslateOptions.js'
+import { TranslatorProvider } from '../../../src/ui/TranslatorContext.js'
 import {
   i18n,
   localization,
@@ -302,23 +303,32 @@ describe('TranslateControl: options', () => {
   it('renders one checkbox per declared option', async () => {
     const onChange = vi.fn()
     render(
-      <TranslateOptions
-        definitions={[
-          {
-            id: 'overwriteEdited',
-            labelKey: 'a:label' as never,
-            hintKey: 'a:hint' as never,
-          },
-          {
-            id: 'future' as never,
-            labelKey: 'b:label' as never,
-            hintKey: 'b:hint' as never,
-          },
-        ]}
-        values={{ overwriteEdited: false, future: true } as never}
-        onChange={onChange}
-        t={(key: string): string => key}
-      />,
+      <TranslatorProvider
+        value={{
+          t: ((key: string): string => key) as never,
+          language: 'en',
+          labelOf: code => code,
+          sourceLabelOf: () => '',
+          linkOf: () => null,
+        }}
+      >
+        <TranslateOptions
+          definitions={[
+            {
+              id: 'overwriteEdited',
+              labelKey: 'a:label' as never,
+              hintKey: 'a:hint' as never,
+            },
+            {
+              id: 'future' as never,
+              labelKey: 'b:label' as never,
+              hintKey: 'b:hint' as never,
+            },
+          ]}
+          values={{ overwriteEdited: false, future: true } as never}
+          onChange={onChange}
+        />
+      </TranslatorProvider>,
     )
 
     expect(checked(screen.getByRole('checkbox', { name: 'a:label' }))).toBe(false)
