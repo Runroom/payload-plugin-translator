@@ -34,6 +34,16 @@ export const withLock =
     return { docs: held, errors: [] }
   }
 
+// The adapter's conditional refresh: the lock when its token is the job's, else `null`.
+export const refreshOf =
+  (lock: LockDoc | null) =>
+  async (args: {
+    where: { and: { token?: { equals: string } }[] }
+  }): Promise<LockDoc | null> => {
+    const token = args.where.and.map(item => item.token?.equals).find(Boolean)
+    return lock && token === lock.token ? lock : null
+  }
+
 export const fields = [
   { name: 'title', type: 'text', localized: true },
   { name: 'subtitle', type: 'text', localized: true },
@@ -91,8 +101,8 @@ export const fakePayload = ({
     collections,
     logger: { error: vi.fn(), warn: vi.fn() },
     // No `beginTransaction`: the write and its record are saved one by one, as on an
-    // adapter without transactions.
-    db: {},
+    // adapter without transactions. The lock is refreshed and released through the adapter.
+    db: { updateOne: vi.fn(refreshOf(lock)), deleteMany: unlock },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(
       async (args: { collection?: string; locale: string }) =>
@@ -110,7 +120,6 @@ export const fakePayload = ({
         return structuredClone(state[args.locale])
       }, lock),
     ),
-    delete: unlock,
   } as unknown as Payload
   return { payload, update, records, unlock }
 }
@@ -122,6 +131,7 @@ export const settings: TranslatorSettings = {
   instructions: () => '',
   access: () => true,
   queue: 'translations',
+  runOnRequest: true,
 }
 
 export const input = {
@@ -195,7 +205,7 @@ export const statefulPayload = (
     logger: { error: vi.fn(), warn: vi.fn() },
     // No `beginTransaction`: the write and its record are saved one by one, as on an
     // adapter without transactions.
-    db: {},
+    db: { updateOne: vi.fn(refreshOf(heldLock())), deleteMany: vi.fn() },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(
       async (args: { collection?: string; locale: string }) =>
@@ -212,7 +222,6 @@ export const statefulPayload = (
       saved.push({ ...data, id: `r-${data.targetLocale}` })
     }),
     update,
-    delete: vi.fn(),
   } as unknown as Payload
   return { payload, update }
 }

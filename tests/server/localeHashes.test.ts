@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { fingerprintOf } from '../../src/core/fingerprint.js'
 import type { TranslationPlan } from '../../src/core/plan.js'
 import type { TranslatableValue } from '../../src/core/types.js'
-import { hashesOf, keepHiddenHashes } from '../../src/server/localeHashes.js'
+import { dropEdited, hashesOf, keepHiddenHashes } from '../../src/server/localeHashes.js'
 import type { LocaleRun } from '../../src/server/localeRun.js'
 
 const field = (path: string, value: unknown): TranslatableValue => ({
@@ -29,35 +29,40 @@ const run = (permissions: LocaleRun['permissions'] = { title: true }): LocaleRun
 
 const sourceDoc = { title: 'Curso', subtitle: 'Sub' }
 
-const previous = { subtitle: { source: 'sub-hash', output: 'sub-output' } }
+const previous = {
+  subtitle: { source: 'sub-hash', output: 'sub-output', sourceLocale: 'es' },
+}
 
 describe('keepHiddenHashes', () => {
   it('carries the fingerprints of fields the requester may not touch', () => {
     const plan = { hashes: {} }
 
-    keepHiddenHashes({
-      run: run(),
-      sourceDoc,
-      plan,
-      previous,
-      previousSourceLocale: 'es',
-    })
+    keepHiddenHashes({ run: run(), sourceDoc, plan, previous })
 
     expect(plan.hashes).toEqual(previous)
   })
 
-  it('drops them when the record was translated from another locale', () => {
+  // An admin translated `subtitle` from `en`; a user allowed only `title` translates from
+  // `es`. The entry keeps saying `en`, so the admin's next run from `es` still knows the
+  // subtitle is the translator's and re-translates it instead of keeping it as a hand edit.
+  it('carries them over with their own source locale when this run is from another one', () => {
     const plan = { hashes: {} }
+    const fromEnglish = {
+      subtitle: { source: 'sub-hash', output: 'sub-output', sourceLocale: 'en' },
+    }
 
-    keepHiddenHashes({
-      run: run(),
-      sourceDoc,
-      plan,
-      previous,
-      previousSourceLocale: 'en',
-    })
+    keepHiddenHashes({ run: run(), sourceDoc, plan, previous: fromEnglish })
 
-    expect(plan.hashes).toEqual({})
+    expect(plan.hashes).toEqual(fromEnglish)
+  })
+
+  it('leaves alone a hidden field the plan already decided on', () => {
+    const planned = { source: 'new-hash', output: null, sourceLocale: 'es' }
+    const plan = { hashes: { subtitle: planned } }
+
+    keepHiddenHashes({ run: run(), sourceDoc, plan, previous })
+
+    expect(plan.hashes.subtitle).toBe(planned)
   })
 })
 
@@ -88,22 +93,75 @@ describe('hashesOf', () => {
     targetHashes: {},
   })
 
-  it('keeps the previous fingerprints of a field whose write was refused', () => {
+  // The field was not translated from this run's locale: the entry keeps the locale its
+  // fingerprints came from, whatever locale the record is stamped with afterwards.
+  it('keeps the previous fingerprints of a refused field, with their own source locale', () => {
     const plan = planOf()
-    const entry = { source: 'old-hash', output: held }
+    const entry = { source: 'old-hash', output: held, sourceLocale: 'en' }
 
     const hashes = refused(plan, { title: entry })
 
     expect(hashes).toEqual({})
     expect(plan.kept).toEqual(['title'])
     expect(plan.hashes.title).toBe(entry)
+    expect(plan.hashes.title!.sourceLocale).toBe('en')
   })
 
-  it('records the source alone for a refused field that had no fingerprints', () => {
+  it('records the source alone, from this locale, for a refused field that had no fingerprints', () => {
     const plan = planOf()
 
     refused(plan, {})
 
-    expect(plan.hashes.title).toEqual({ source: fingerprintOf(title), output: null })
+    expect(plan.hashes.title).toEqual({
+      source: fingerprintOf(title),
+      output: null,
+      sourceLocale: 'es',
+    })
+  })
+
+  it('stamps a written field with the locale it was translated from', () => {
+    const plan = planOf()
+
+    const hashes = hashesOf({
+      plan,
+      writes: [sent],
+      written: { title: '[ca] Curso' },
+      before: new Map([['title', held]]),
+      previous: {},
+      run: run(true),
+    })
+
+    expect(hashes.title).toEqual({
+      source: fingerprintOf(title),
+      output: fingerprintOf(field('title', '[ca] Curso')),
+      sourceLocale: 'es',
+    })
+  })
+})
+
+describe('dropEdited', () => {
+  it('keeps a field edited while the provider ran, stamped with this run’s locale', () => {
+    const title = field('title', 'Curso')
+    const plan: TranslationPlan = {
+      translate: [title],
+      hashes: {},
+      kept: [],
+      targetHashes: { title: null },
+    }
+
+    const left = dropEdited({
+      plan,
+      writes: [{ path: 'title', segments: title.segments, value: '[ca] Curso' }],
+      current: new Map([['title', fingerprintOf(field('title', 'Editat'))]]),
+      sourceLocale: 'es',
+    })
+
+    expect(left).toEqual([])
+    expect(plan.kept).toEqual(['title'])
+    expect(plan.hashes.title).toEqual({
+      source: fingerprintOf(title),
+      output: null,
+      sourceLocale: 'es',
+    })
   })
 })

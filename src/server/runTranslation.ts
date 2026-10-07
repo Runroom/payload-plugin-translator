@@ -105,11 +105,19 @@ const recordFailure = async (
   return error
 }
 
-// A record without `sourceLocale` was translated from the default locale.
-const previousOf = (payload: Payload, record: TranslationRecord | null): Previous => ({
-  fields: record?.fields ?? {},
-  sourceLocale: record?.sourceLocale ?? defaultLocaleOf(payload),
-})
+// A record without `sourceLocale` was translated from the default locale. An entry
+// without its own locale comes from the record's: it is stamped here so that it keeps
+// that provenance once the record names the locale of this run.
+const previousOf = (payload: Payload, record: TranslationRecord | null): Previous => {
+  const sourceLocale = record?.sourceLocale ?? defaultLocaleOf(payload)
+  const fields = Object.fromEntries(
+    Object.entries(record?.fields ?? {}).map(([path, entry]) => [
+      path,
+      { sourceLocale, ...entry },
+    ]),
+  )
+  return { fields, sourceLocale }
+}
 
 // The requester's access is checked again on every attempt, in the locales the job reads
 // and writes, so a user who lost access since queueing gets nothing written.

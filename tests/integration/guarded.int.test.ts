@@ -19,6 +19,16 @@ import {
 
 type Items = { id: string; text?: string | null; locked?: boolean }[]
 
+type Translate = typeof provider.translate
+
+// A provider answer with another prefix than the fake provider's.
+const prefixedBy =
+  (prefix: string): Translate =>
+  async ({ units }) =>
+    Object.fromEntries(
+      Object.entries(units).map(([key, text]) => [key, `${prefix}${text}`]),
+    )
+
 // `guarded` has access rules that depend on the locale, the user's flags and the row. The
 // job runs as the requester, so Payload applies them when it reads and writes.
 describe('translating as the requester under access rules', () => {
@@ -163,6 +173,7 @@ describe('translating as the requester under access rules', () => {
     expect(record?.fields?.[`items.${locked.id}.text`]).toEqual({
       source: expect.any(String),
       output: null,
+      sourceLocale: 'en',
     })
   })
 
@@ -193,6 +204,54 @@ describe('translating as the requester under access rules', () => {
     expect(
       localeStatus(await status(harness, { collection: 'guarded', id }), 'es'),
     ).toMatchObject({ state: 'done', stale: false, changed: 0, kept: 0 })
+  })
+
+  // `en` and `fr` hold the same text. A row translated from `en`, then refused while
+  // locked during a run from `fr`, keeps its `en` fingerprints while the record now says
+  // `fr`: once unlocked, the next run from `fr` must still translate it.
+  it('translates again, once unlocked, a refused row whose fingerprints came from another source locale', async () => {
+    const id = await createDoc({ title: 'Twin', items: [{ text: 'Same' }] })
+    const [row] = (await readDraft(id, 'en')).items as Items
+    if (!row) throw new Error('The row was not created')
+    const path = `items.${row.id}.text`
+    await harness.payload.update({
+      collection: 'guarded' as never,
+      id,
+      locale: 'fr',
+      draft: true,
+      data: { title: 'Twin', items: [{ ...row, text: 'Same' }] },
+    } as never)
+    const fromFrench = {
+      collection: 'guarded',
+      id,
+      sourceLocale: 'fr',
+      targetLocales: ['es'],
+    }
+
+    await translateAndWait(harness, { ...fromFrench, sourceLocale: 'en' })
+    expect((await readDraft(id, 'es')).items).toMatchObject([{ text: '[es] Same' }])
+    expect(
+      (await findRecord(harness, { docId: id, targetLocale: 'es' }))?.fields,
+    ).toMatchObject({ [path]: { sourceLocale: 'en' } })
+
+    await setRows(id, [{ ...row, text: 'Same', locked: true }])
+    // An output that differs from the one the row holds, so the refusal shows: a refused
+    // write of the very same text is indistinguishable from a successful one.
+    sent.mockImplementationOnce(prefixedBy('[es, from fr] '))
+    await translateAndWait(harness, fromFrench)
+    expect((await readDraft(id, 'es')).items).toMatchObject([{ text: '[es] Same' }])
+    const refused = await findRecord(harness, { docId: id, targetLocale: 'es' })
+    expect(refused).toMatchObject({ status: 'done', sourceLocale: 'fr', kept: [path] })
+    expect(refused?.fields?.[path]).toMatchObject({ sourceLocale: 'en' })
+
+    await setRows(id, [{ ...row, text: 'Same', locked: false }])
+    sent.mockClear()
+    await translateAndWait(harness, fromFrench)
+
+    expect(sentTexts()).toEqual(['Same'])
+    const record = await findRecord(harness, { docId: id, targetLocale: 'es' })
+    expect(record).toMatchObject({ status: 'done', sourceLocale: 'fr', kept: [] })
+    expect(record?.fields?.[path]).toMatchObject({ sourceLocale: 'fr' })
   })
 
   it('reports a locale the requester cannot read without comparison data', async () => {

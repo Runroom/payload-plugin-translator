@@ -91,18 +91,22 @@ describe('runTranslation and the document lock', () => {
 
     await runTranslation({ isLastAttempt: false, payload, input, settings })
 
-    const calls = (payload as unknown as { update: { mock: { calls: unknown[][] } } })
-      .update.mock.calls
-    const refreshes = calls.filter(
-      ([args]) => (args as { collection: string }).collection === LOCKS_SLUG,
-    )
+    const refresh = vi.mocked(payload.db.updateOne)
     // Start of the attempt, before the `running` record, after the provider batch and
     // before the write.
-    expect(refreshes).toHaveLength(4)
-    expect(refreshes[0]![0]).toMatchObject({ data: { token: LOCK_TOKEN } })
+    expect(refresh).toHaveBeenCalledTimes(4)
+    expect(refresh.mock.calls[0]![0]).toMatchObject({
+      collection: LOCKS_SLUG,
+      where: { and: expect.arrayContaining([{ token: { equals: LOCK_TOKEN } }]) },
+      options: { atomic: true },
+    })
     // The first refresh comes before anything is read: a plain lookup would leave a lock
     // about to expire open to a take-over during the first provider batch.
-    expect(calls[0]![0]).toMatchObject({ collection: LOCKS_SLUG })
+    const firstRead = Math.min(
+      ...vi.mocked(payload.find).mock.invocationCallOrder,
+      ...vi.mocked(payload.findByID).mock.invocationCallOrder,
+    )
+    expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(firstRead)
     expect(vi.mocked(payload.find)).not.toHaveBeenCalledWith(
       expect.objectContaining({ collection: LOCKS_SLUG }),
     )

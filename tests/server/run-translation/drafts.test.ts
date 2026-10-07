@@ -7,9 +7,11 @@ import { runTranslation } from '../../../src/server/runTranslation.js'
 import {
   fields,
   fakePayload,
+  heldLock,
   settings,
   input,
   LOCK_TOKEN,
+  refreshOf,
   requester,
   userOf,
   withLock,
@@ -97,7 +99,7 @@ const globalPayload = ({
     logger: { error: vi.fn(), warn: vi.fn() },
     // No `beginTransaction`: the write and its record are saved one by one, as on an
     // adapter without transactions.
-    db: {},
+    db: { updateOne: vi.fn(refreshOf(heldLock())), deleteMany: vi.fn() },
     config: { blocks: [], localization: { defaultLocale: 'es' } },
     findByID: vi.fn(async (args: { collection?: string }) => userOf(args)),
     findGlobal,
@@ -105,7 +107,6 @@ const globalPayload = ({
     find: vi.fn(withLock(async () => ({ docs: [] }))),
     create: records,
     update: vi.fn(withLock(records)),
-    delete: vi.fn(),
   } as unknown as Payload
   return { payload, updateGlobal, findGlobal, records }
 }

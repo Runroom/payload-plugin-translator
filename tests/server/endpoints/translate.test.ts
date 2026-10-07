@@ -395,7 +395,9 @@ describe('POST /translator/translate', () => {
       expect.objectContaining({
         where: {
           and: [
-            { id: { equals: 'l-other' } },
+            { entityType: { equals: 'collection' } },
+            { collectionSlug: { equals: 'events' } },
+            { docId: { equals: 'e1' } },
             { token: { equals: 'other-token' } },
             { updatedAt: { less_than: expect.any(String) } },
           ],
@@ -403,6 +405,24 @@ describe('POST /translator/translate', () => {
       }),
     )
     expect(queue).toHaveBeenCalledTimes(1)
+  })
+
+  it('only queues the job, without running it, when runOnRequest is false', async () => {
+    const { req, queue, run, create } = request({
+      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
+    })
+
+    const response = await endpoint(
+      settings({ runOnRequest: false }),
+      '/translator/translate',
+    )(req)
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ queued: ['ca'] })
+    expect(queue).toHaveBeenCalledTimes(1)
+    expect(run).not.toHaveBeenCalled()
+    expect(create.mock.calls.map(([args]) => args.data.status)).toEqual(['queued'])
   })
 })
 

@@ -479,7 +479,11 @@ describe('runTranslation', () => {
       fields: Record<string, { output: string | null }>
     }
     expect(record).toMatchObject({ status: 'done', kept: ['subtitle'] })
-    expect(record.fields.subtitle).toEqual({ source: expect.any(String), output: null })
+    expect(record.fields.subtitle).toEqual({
+      source: expect.any(String),
+      output: null,
+      sourceLocale: 'es',
+    })
     expect(record.fields.title!.output).toEqual(expect.any(String))
   })
 
@@ -517,6 +521,7 @@ describe('runTranslation', () => {
     expect(records.mock.calls.at(-1)![0].data.fields.title).toEqual({
       source: fingerprint(['Curso']),
       output: fingerprint(['[ca] Curso']),
+      sourceLocale: 'es',
     })
   })
 
@@ -548,11 +553,17 @@ describe('runTranslation', () => {
     expect(data.status).toBe('done')
     expect(data.kept).toEqual(['subtitle'])
     expect(Object.keys(data.fields)).toHaveLength(3)
-    expect(data.fields.title).toEqual(previous.title)
-    expect(data.fields.subtitle).toEqual({ source: fingerprint(['Sub']), output: null })
+    // Every entry names the locale it was taken from, the unchanged one included.
+    expect(data.fields.title).toEqual({ ...previous.title, sourceLocale: 'es' })
+    expect(data.fields.subtitle).toEqual({
+      source: fingerprint(['Sub']),
+      output: null,
+      sourceLocale: 'es',
+    })
     expect(Object.values(data.fields)).toContainEqual({
       source: fingerprint(['Día 1']),
       output: fingerprint(['[ca] Día 1']),
+      sourceLocale: 'es',
     })
   })
 
@@ -681,7 +692,11 @@ describe('runTranslation and a target edited while the provider runs', () => {
     ])
     const data = records.mock.calls.at(-1)![0].data
     expect(data).toMatchObject({ status: 'done', kept: ['title'] })
-    expect(data.fields.title).toEqual({ source: fingerprint(['Curso']), output: null })
+    expect(data.fields.title).toEqual({
+      source: fingerprint(['Curso']),
+      output: null,
+      sourceLocale: 'es',
+    })
     expect(data).not.toHaveProperty('translatedAt')
   })
 
@@ -707,8 +722,12 @@ describe('runTranslation and a target edited while the provider runs', () => {
     const data = records.mock.calls.at(-1)![0].data
     expect(data).toMatchObject({ status: 'done', kept: ['title'] })
     expect(data.fields).toEqual({
-      title: { source: fingerprint(['Curso']), output: null },
-      subtitle: { source: fingerprint(['Sub']), output: fingerprint(['[ca] Sub']) },
+      title: { source: fingerprint(['Curso']), output: null, sourceLocale: 'es' },
+      subtitle: {
+        source: fingerprint(['Sub']),
+        output: fingerprint(['[ca] Sub']),
+        sourceLocale: 'es',
+      },
     })
     expect(data.translatedAt).toEqual(expect.any(String))
   })

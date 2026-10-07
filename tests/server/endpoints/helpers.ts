@@ -16,6 +16,7 @@ export const settings = (
   instructions: () => '',
   access: () => true,
   queue: 'translations',
+  runOnRequest: true,
   ...overrides,
 })
 
@@ -73,7 +74,8 @@ export const request = ({
   req: PayloadRequest
   queue: ReturnType<typeof vi.fn>
   run: ReturnType<typeof vi.fn>
-  // The records' `create`; the lock's own calls are in `locks`.
+  // The records' `create`; the lock's own calls are in `locks` (`delete` is the adapter's
+  // `deleteMany`, which releases and takes over locks).
   create: ReturnType<typeof vi.fn>
   locks: { create: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> }
   findByID: ReturnType<typeof vi.fn>
@@ -139,7 +141,7 @@ export const request = ({
         args.collection === LOCKS_SLUG ? locks.create(args as never) : create(args),
       ),
       update,
-      delete: locks.delete,
+      db: { deleteMany: locks.delete },
       findVersions,
       findGlobalVersions,
     },

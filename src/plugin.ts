@@ -37,7 +37,7 @@ export const translatorPlugin =
       onInit: async payload => {
         await config.onInit?.(payload)
         // Without a provider nothing is translated, so there are no retries to miss.
-        if (settings.provider) await warnIfQueueUnscheduled(payload, settings.queue)
+        if (settings.provider) await warnIfQueueUnscheduled(payload, settings)
       },
       collections: [
         ...(config.collections ?? []).map(collection =>

@@ -198,7 +198,12 @@ const writeTranslation = async ({
   const before = new Map(
     translatablesOf(run, targetDoc).map(value => [value.path, fingerprintOf(value)]),
   )
-  const left = dropEdited({ plan, writes, current: before })
+  const left = dropEdited({
+    plan,
+    writes,
+    current: before,
+    sourceLocale: run.sourceLocale,
+  })
   if (left.length === 0) return { writes: left, written: null, before }
   const written = await entity.write({
     locale: targetLocale,
@@ -318,13 +323,7 @@ export const execute = async (
     sourceLocale,
     previousSourceLocale: previous.sourceLocale,
   })
-  keepHiddenHashes({
-    run,
-    sourceDoc,
-    plan,
-    previous: previous.fields,
-    previousSourceLocale: previous.sourceLocale,
-  })
+  keepHiddenHashes({ run, sourceDoc, plan, previous: previous.fields })
   if (plan.translate.length === 0) {
     const outcome = unchanged(plan)
     await assertLock(run)

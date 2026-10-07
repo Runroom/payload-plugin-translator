@@ -42,7 +42,7 @@ const untranslated = (locale: string): LocaleStatus => ({
   kept: 0,
 })
 
-type Comparison = { source: Translatables; target: Translatables }
+type Comparison = { source: Translatables; target: Translatables; sourceLocale: string }
 
 // Only finished locales are compared with their source; the rest have nothing to measure.
 const staleness = ({
@@ -53,8 +53,8 @@ const staleness = ({
   comparison: Comparison | undefined
 }): Pick<LocaleStatus, 'stale' | 'changed' | 'missing'> => {
   if (!comparison) return { stale: false, changed: 0, missing: 0 }
-  const { source, target } = comparison
-  const changed = countChanged({ source, hashes: record.fields ?? {} })
+  const { source, target, sourceLocale } = comparison
+  const changed = countChanged({ source, hashes: record.fields ?? {}, sourceLocale })
   const missing = countMissing({ source, target })
   return { stale: changed > 0 || missing > 0, changed, missing }
 }
@@ -197,7 +197,11 @@ const comparisons = async ({
     )
     const collect = (data: Doc): Translatables =>
       collectTranslatables({ fields: entity.fields, data, blocks, permissions })
-    result.set(record.targetLocale, { source: collect(source), target: collect(target) })
+    result.set(record.targetLocale, {
+      source: collect(source),
+      target: collect(target),
+      sourceLocale,
+    })
   }
   return result
 }

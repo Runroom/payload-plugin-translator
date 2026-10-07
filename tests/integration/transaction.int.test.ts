@@ -102,6 +102,7 @@ describe('the document write and its record inside one transaction', () => {
     expect(record?.fields?.title).toEqual({
       source: expect.any(String),
       output: expect.any(String),
+      sourceLocale: 'en',
     })
     // Nothing of the rolled-back attempt survived, so the retry translated the text again
     // instead of keeping it as a hand edit.

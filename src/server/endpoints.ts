@@ -131,10 +131,14 @@ const undoQueued = async (
 // translation takes longer than an HTTP response should. On a long-lived Node process the
 // promise outlives the response. The cron only picks up queued jobs nobody ran (after a
 // restart, for instance) and does not rescue one that was in progress; E2E runs have no
-// cron. The run filters by id because `run` without `where` takes the oldest jobs in the
-// queue, not necessarily this one. `runByID` is not used because it runs the job even
-// while the cron is already processing it.
+// cron. On serverless the process may be frozen once the response is sent, leaving the
+// job marked as processing and skipped by every later run until the lock expires: with
+// `runOnRequest: false` the job is only queued and the queue runs it. The run filters by
+// id because `run` without `where` takes the oldest jobs in the queue, not necessarily
+// this one. `runByID` is not used because it runs the job even while the cron is already
+// processing it.
 const startJob = ({ req, settings }: Translation, job: { id: string | number }): void => {
+  if (!settings.runOnRequest) return
   void req.payload.jobs
     .run({ queue: settings.queue, limit: 1, where: { id: { in: [job.id] } } })
     .catch((error: unknown) => {

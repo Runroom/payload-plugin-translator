@@ -1,7 +1,6 @@
 import type { FieldWrite } from '../core/apply.js'
 import { fingerprintOf } from '../core/fingerprint.js'
 import type { FieldHashes, TranslationPlan } from '../core/plan.js'
-import { isSameSource } from '../core/plan.js'
 import { collectTranslatables } from '../core/schema.js'
 import type { TranslatableValue } from '../core/types.js'
 import type { LocaleRun } from './localeRun.js'
@@ -22,24 +21,21 @@ export const translatablesOf = (
 
 // Fields the requester may not touch are left out of the plan but keep their fingerprints;
 // otherwise the next request by someone who may touch them would treat their text as a
-// hand edit. Paths that no longer exist (a removed row) are still dropped, and so is
-// everything when the source locale changed: the record is stamped with the new source
-// locale, and those fingerprints were taken from the old one.
+// hand edit. Each entry carries the locale it was taken from, so a source locale other
+// than the record's is no reason to drop them: a later run from any locale still knows
+// what they are. Paths that no longer exist (a removed row) are dropped.
 export const keepHiddenHashes = ({
   run,
   sourceDoc,
   plan,
   previous,
-  previousSourceLocale,
 }: {
   run: LocaleRun
   sourceDoc: Record<string, unknown>
   plan: { hashes: FieldHashes }
   previous: FieldHashes
-  previousSourceLocale: string
 }): void => {
   if (run.permissions === true) return
-  if (!isSameSource(run.sourceLocale, previousSourceLocale)) return
   for (const { path } of translatablesOf(run, sourceDoc, { restricted: false })) {
     const hashes = previous[path]
     if (hashes && !(path in plan.hashes)) plan.hashes[path] = hashes
@@ -86,6 +82,7 @@ export const hashesOf = ({
   run: LocaleRun
 }): FieldHashes => {
   const saved = translatablesOf(run, written)
+  const { sourceLocale } = run
   const hashes: FieldHashes = {}
   for (const value of plan.translate) {
     const sent = writes.find(write => write.path === value.path)
@@ -94,10 +91,20 @@ export const hashesOf = ({
     const source = fingerprintOf(value)!
     if (wasRefused({ value, sent, saved: savedValue, before: before.get(value.path) })) {
       plan.kept.push(value.path)
-      plan.hashes[value.path] = previous[value.path] ?? { source, output: null }
+      // The previous entry is kept whole, with the locale it came from: the field was not
+      // translated from this one.
+      plan.hashes[value.path] = previous[value.path] ?? {
+        source,
+        output: null,
+        sourceLocale,
+      }
       continue
     }
-    hashes[value.path] = { source, output: savedValue ? fingerprintOf(savedValue) : null }
+    hashes[value.path] = {
+      source,
+      output: savedValue ? fingerprintOf(savedValue) : null,
+      sourceLocale,
+    }
   }
   return hashes
 }
@@ -109,15 +116,21 @@ export const dropEdited = ({
   plan,
   writes,
   current,
+  sourceLocale,
 }: {
   plan: TranslationPlan
   writes: PathWrite[]
   current: Map<string, string | null>
+  sourceLocale: string
 }): PathWrite[] =>
   writes.filter(write => {
     if ((current.get(write.path) ?? null) === plan.targetHashes[write.path]) return true
     const source = plan.translate.find(value => value.path === write.path)!
     plan.kept.push(write.path)
-    plan.hashes[write.path] = { source: fingerprintOf(source)!, output: null }
+    plan.hashes[write.path] = {
+      source: fingerprintOf(source)!,
+      output: null,
+      sourceLocale,
+    }
     return false
   })

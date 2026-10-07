@@ -24,14 +24,16 @@ const lockAged = (ageMs: number, token = 'other'): Record<string, unknown> => ({
 })
 
 // `creates` answers each `create` in turn: `true` succeeds, `false` is a unique violation.
+// The conditional delete and the refresh go through the adapter (`payload.db`), never
+// through Payload's `delete` and `update` operations, which are not provided.
 const fakePayload = ({
   creates,
   finds = [],
-  updated = [],
+  refreshed = null,
 }: {
   creates: boolean[]
   finds?: Record<string, unknown>[][]
-  updated?: Record<string, unknown>[]
+  refreshed?: Record<string, unknown> | null
 }): {
   payload: Payload
   create: ReturnType<typeof vi.fn>
@@ -45,15 +47,28 @@ const fakePayload = ({
   }
   const find = vi.fn()
   for (const docs of finds) find.mockResolvedValueOnce({ docs })
-  const remove = vi.fn().mockResolvedValue({})
-  const update = vi.fn().mockResolvedValue({ docs: updated, errors: [] })
+  const remove = vi.fn().mockResolvedValue(undefined)
+  const update = vi.fn().mockResolvedValue(refreshed)
   return {
-    payload: { create, find, delete: remove, update } as unknown as Payload,
+    payload: {
+      create,
+      find,
+      db: { deleteMany: remove, updateOne: update },
+    } as unknown as Payload,
     create,
     remove,
     update,
   }
 }
+
+const whereHeld = (token: string): { and: Record<string, unknown>[] } => ({
+  and: [
+    { entityType: { equals: 'collection' } },
+    { collectionSlug: { equals: 'events' } },
+    { docId: { equals: 'e1' } },
+    { token: { equals: token } },
+  ],
+})
 
 describe('locksCollection', () => {
   it('is hidden, closed to the API and unique per entity', () => {
@@ -96,7 +111,7 @@ describe('acquireLock', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('deletes an expired lock by id and token, only if still expired, and takes it over', async () => {
+  it('deletes an expired lock in one adapter statement, by token and only if still expired', async () => {
     const { payload, remove, create } = fakePayload({
       creates: [false, true],
       finds: [[lockAged(BUSY_WINDOW_MS + 1)]],
@@ -110,17 +125,16 @@ describe('acquireLock', () => {
       collection: LOCKS_SLUG,
       where: {
         and: [
-          { id: { equals: 'l1' } },
-          { token: { equals: 'other' } },
+          ...whereHeld('other').and,
           { updatedAt: { less_than: expect.any(String) } },
         ],
       },
     })
-    // A heartbeat that landed since the lookup moves `updatedAt` past the cutoff, so the
-    // delete no longer matches a lock its holder is still using.
+    // A heartbeat that lands before the statement moves `updatedAt` past the cutoff, so
+    // the delete matches nothing: the age filter is part of the statement itself.
     const [{ where }] = remove.mock.calls[0] as [{ where: { and: unknown[] } }]
     const cutoff = Date.parse(
-      (where.and[2] as { updatedAt: { less_than: string } }).updatedAt.less_than,
+      (where.and[4] as { updatedAt: { less_than: string } }).updatedAt.less_than,
     )
     expect(cutoff).toBeGreaterThanOrEqual(before - BUSY_WINDOW_MS)
     expect(cutoff).toBeLessThanOrEqual(Date.now() - BUSY_WINDOW_MS)
@@ -151,43 +165,35 @@ describe('acquireLock', () => {
 })
 
 describe('refreshLock and releaseLock', () => {
-  it('refreshes only the lock that still carries the token and reports a lost one', async () => {
-    const held = fakePayload({ creates: [], updated: [lockAged(0, 'mine')] })
+  it('refreshes with one atomic adapter update by token, stamping updatedAt, and reports a lost one', async () => {
+    const held = fakePayload({ creates: [], refreshed: lockAged(0, 'mine') })
+    const before = Date.now()
 
     expect(await refreshLock(held.payload, ref, 'mine')).toBe(true)
+
     expect(held.update).toHaveBeenCalledWith({
       collection: LOCKS_SLUG,
-      where: {
-        and: [
-          { entityType: { equals: 'collection' } },
-          { collectionSlug: { equals: 'events' } },
-          { docId: { equals: 'e1' } },
-          { token: { equals: 'mine' } },
-        ],
-      },
-      data: { token: 'mine' },
-      depth: 0,
+      where: whereHeld('mine'),
+      data: { updatedAt: expect.any(String) },
+      options: { atomic: true },
     })
+    const [{ data }] = held.update.mock.calls[0] as [{ data: { updatedAt: string } }]
+    expect(Date.parse(data.updatedAt)).toBeGreaterThanOrEqual(before)
+    expect(Date.parse(data.updatedAt)).toBeLessThanOrEqual(Date.now())
 
-    const lost = fakePayload({ creates: [], updated: [] })
+    // The adapter answers `null` when no row carries the token.
+    const lost = fakePayload({ creates: [], refreshed: null })
     expect(await refreshLock(lost.payload, ref, 'mine')).toBe(false)
   })
 
-  it('releases only a lock that carries the token', async () => {
+  it('releases only a lock that carries the token, through the adapter', async () => {
     const { payload, remove } = fakePayload({ creates: [] })
 
     await releaseLock(payload, ref, 'mine')
 
     expect(remove).toHaveBeenCalledWith({
       collection: LOCKS_SLUG,
-      where: {
-        and: [
-          { entityType: { equals: 'collection' } },
-          { collectionSlug: { equals: 'events' } },
-          { docId: { equals: 'e1' } },
-          { token: { equals: 'mine' } },
-        ],
-      },
+      where: whereHeld('mine'),
     })
   })
 

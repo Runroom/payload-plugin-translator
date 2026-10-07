@@ -167,7 +167,11 @@ describe('translating a collection with drafts', () => {
     expect(firstParagraph(draft.body)[0]).toMatchObject({ text: '[es] Read the ' })
     const record = await findRecord(harness, { docId: id, targetLocale: 'es' })
     expect(record).toMatchObject({ status: 'done', kept: ['title'] })
-    expect(record?.fields?.title).toEqual({ source: expect.any(String), output: null })
+    expect(record?.fields?.title).toEqual({
+      source: expect.any(String),
+      output: null,
+      sourceLocale: 'en',
+    })
     expect(record?.fields?.body?.output).toEqual(expect.any(String))
   })
 
