@@ -112,7 +112,8 @@ After adding the plugin:
 
 Excluding a field: add `custom: { translator: 'exclude' }` to the field config. Useful for
 values recomputed by hooks (search text) or that must not be translated (a postal
-address).
+address). On a layout field (`row`, `collapsible`, `tabs`, an unnamed `group`) or on a
+single tab it excludes every field inside it.
 
 ### Entry points
 
@@ -321,11 +322,12 @@ one string where every inline node becomes a numbered mark (`<1>bold</1>`, `<2/>
 line break or an inline block), and the result is parsed back into the same nodes.
 Formatting, links, uploads and **the content of blocks and inline blocks are not
 translated: they are copied from the source**. Changes to those parts in the source still
-make the target stale, because they are part of the fingerprint. A translation that breaks
-the marks is retried once for the broken values and then fails the locale. Literal
-mark-like text in your content (`Age <18>`) is sent with `&lt;` entities so the model
-cannot confuse it with a mark; plain `text` and `textarea` fields are not checked for
-marks.
+make the target stale, because they are part of the fingerprint. A rich text with no text
+at all (only uploads, blocks or rules) is copied to the target as is, without a provider
+call. A translation that breaks the marks, or comes back blank for a non-blank value, is
+retried once for the broken values and then fails the locale. Literal mark-like text in
+your content (`Age <18>`) is sent with `&lt;` entities so the model cannot confuse it with
+a mark; plain `text` and `textarea` fields are not checked for marks.
 
 ### Admin languages
 

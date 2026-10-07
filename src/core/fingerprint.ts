@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 
-import { extractContainers, isLexicalState, structureOf } from './lexical.js'
+import {
+  extractContainers,
+  hasNonTextContent,
+  isLexicalState,
+  structureOf,
+} from './lexical.js'
 import type { TranslatableValue } from './types.js'
 
 export const unitsOf = ({ kind, value }: TranslatableValue): string[] => {
@@ -17,10 +22,11 @@ export const fingerprint = (units: string[]): string | null =>
 // when opening it (adds keys, reorders) and that is not a content change. What the
 // translation copies from the source without going through the model (formatting, links,
 // uploads…) does count: if it changed and the fingerprint did not, the target would stay
-// "up to date" with the old version.
+// "up to date" with the old version. A value with only uploads, blocks or rules has no
+// units but is still content to copy: its fingerprint comes from the structure alone.
 export const fingerprintOf = (value: TranslatableValue): string | null => {
   const units = unitsOf(value)
   if (value.kind !== 'richText' || !isLexicalState(value.value)) return fingerprint(units)
-  if (units.length === 0) return null
+  if (units.length === 0 && !hasNonTextContent(value.value)) return null
   return fingerprint([...units, JSON.stringify(structureOf(value.value))])
 }

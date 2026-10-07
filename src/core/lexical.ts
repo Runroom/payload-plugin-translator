@@ -118,28 +118,6 @@ const canonicalUrl = (url: unknown): unknown => {
   return current
 }
 
-const linkFields = (fields: Record<string, unknown>): Summary => ({
-  url: canonicalUrl(fields.url),
-  newTab: fields.newTab === true,
-  linkType: fields.linkType ?? null,
-  doc: isRecord(fields.doc)
-    ? { relationTo: fields.doc.relationTo ?? null, value: idOf(fields.doc.value) }
-    : null,
-})
-
-// Only keys picked one by one: the ones Lexical adds or rewrites when the document is
-// opened (`version`, `direction`, `indent`, `style`, `detail`, `mode`…) must stay out.
-const attributesOf = (node: LexicalNode): Summary => {
-  const summary: Summary = { type: node.type }
-  if (node.type === 'text') summary.format = node.format ?? 0
-  if (typeof node.tag === 'string') summary.tag = node.tag
-  if (typeof node.listType === 'string') summary.listType = node.listType
-  if ((node.type === 'link' || node.type === 'autolink') && isRecord(node.fields)) {
-    summary.fields = linkFields(node.fields)
-  }
-  return summary
-}
-
 const sortKeys = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(sortKeys)
   if (!isRecord(value)) return value ?? null
@@ -148,6 +126,52 @@ const sortKeys = (value: unknown): unknown => {
       .sort()
       .map(key => [key, sortKeys(value[key])]),
   )
+}
+
+// The whole `fields` object is copied to the target, custom link fields included, so all
+// of it counts. `url` without encoding layers and `doc` by id, so saving or populating the
+// relation does not count as a change.
+const linkFields = (fields: Record<string, unknown>): Summary =>
+  sortKeys({
+    ...fields,
+    url: canonicalUrl(fields.url),
+    newTab: fields.newTab === true,
+    linkType: fields.linkType ?? null,
+    doc: isRecord(fields.doc)
+      ? { relationTo: fields.doc.relationTo ?? null, value: idOf(fields.doc.value) }
+      : null,
+  }) as Summary
+
+const listAttributes = (node: LexicalNode): Summary => {
+  if (node.type === 'list') {
+    return { start: typeof node.start === 'number' ? node.start : 1 }
+  }
+  if (node.type === 'listitem') return { checked: node.checked === true }
+  return {}
+}
+
+// The target is a clone of the source with only the text replaced, so every attribute that
+// changes how it renders is copied from the source and has to count. Each one is picked by
+// hand with its default, because Lexical writes the defaults when the document is opened
+// (`format: ''`, `indent: 0`, `style: ''`). Left out: `version`, `direction` (Lexical
+// recomputes it from the text, so it differs per language), `textFormat`/`textStyle` on
+// elements (they follow the selection), text `detail`/`mode` (editing behaviour, not
+// rendering) and listitem `value` (Lexical renumbers it from the list `start` and the
+// position, which already count).
+const formatOf = (node: LexicalNode): Summary =>
+  node.type === 'text'
+    ? { format: node.format ?? 0, style: node.style ?? '' }
+    : { format: node.format ?? '' }
+
+const attributesOf = (node: LexicalNode): Summary => {
+  const summary: Summary = { type: node.type, ...formatOf(node), ...listAttributes(node) }
+  if (Array.isArray(node.children)) summary.indent = node.indent ?? 0
+  if (typeof node.tag === 'string') summary.tag = node.tag
+  if (typeof node.listType === 'string') summary.listType = node.listType
+  if ((node.type === 'link' || node.type === 'autolink') && isRecord(node.fields)) {
+    summary.fields = linkFields(node.fields)
+  }
+  return summary
 }
 
 // A block's `fields` (`block`, `inlineBlock`, `upload`) are not translated: they are
@@ -175,6 +199,19 @@ const summarize = (node: LexicalNode): Summary => {
 }
 
 export const structureOf = (state: LexicalState): Summary => summarize(state.root)
+
+const TEXT_LEAVES = new Set(['text', 'linebreak', 'tab'])
+
+// Element nodes always carry a `children` array; a node without one that is not text
+// (`upload`, `block`, `inlineBlock`, `horizontalrule`…) is content even with no text
+// around it. An empty editor (no children, or only empty paragraphs) has none.
+const hasNodeContent = (node: LexicalNode): boolean =>
+  Array.isArray(node.children)
+    ? node.children.some(hasNodeContent)
+    : !TEXT_LEAVES.has(node.type)
+
+export const hasNonTextContent = (state: LexicalState): boolean =>
+  hasNodeContent(state.root)
 
 type Frame = {
   mark: number | null

@@ -204,6 +204,40 @@ describe('runTranslation', () => {
     expect(last.data.fields.title.output).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('copies a rich text with only an upload to the target without calling the provider', async () => {
+    const gallery = {
+      root: {
+        type: 'root',
+        children: [{ type: 'upload', relationTo: 'media', value: 'm1', fields: null }],
+      },
+    }
+    const { payload, update, records } = fakePayload({
+      docs: { es: { id: 'e1', gallery }, ca: { id: 'e1', gallery: null } },
+      collections: {
+        events: {
+          config: {
+            fields: [{ name: 'gallery', type: 'richText', localized: true }],
+            versions: { drafts: { autosave: false } },
+          },
+        },
+      },
+    })
+    const translate = vi.fn(fakeProvider().translate)
+
+    await runTranslation({
+      isLastAttempt: true,
+      payload,
+      input,
+      settings: { ...settings, provider: { translate } },
+    })
+
+    expect(translate).not.toHaveBeenCalled()
+    expect(update.mock.calls[0]![0].data).toEqual({ gallery })
+    const last = records.mock.calls.at(-1)![0]
+    expect(last.data.status).toBe('done')
+    expect(last.data.fields.gallery.output).toBe(last.data.fields.gallery.source)
+  })
+
   it('does not write the document when nothing needs translating', async () => {
     const { payload, update } = fakePayload({
       docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: 'Curs editat' } },
