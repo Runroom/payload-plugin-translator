@@ -44,7 +44,7 @@ export const translateTask = (settings: TranslatorSettings): TaskConfig =>
       req,
     }: {
       input: RawTranslationJobInput
-      job: { totalTried?: number }
+      job: { totalTried?: number; createdAt?: string | Date }
       req: { payload: never }
     }) => {
       // `totalTried` counts the runs that already failed; Payload stops retrying when it
@@ -59,6 +59,7 @@ export const translateTask = (settings: TranslatorSettings): TaskConfig =>
         },
         settings,
         isLastAttempt: (job.totalTried ?? 0) >= RETRIES.attempts,
+        jobCreatedAt: job.createdAt,
       })
       return { output: {} }
     },

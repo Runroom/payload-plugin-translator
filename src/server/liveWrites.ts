@@ -36,7 +36,9 @@ export const notifyLiveWrites = async ({
   records: (TranslationRecord & { targetLocale: string })[]
 }): Promise<void> => {
   const hook = settings.onLiveWrite
-  const pending = records.filter(needsRevalidation)
+  const pending = records
+    .filter(needsRevalidation)
+    .map(record => ({ record, translatedAt: record.translatedAt! }))
   if (!hook || pending.length === 0) return
   const { logger } = req.payload
   try {
@@ -45,15 +47,19 @@ export const notifyLiveWrites = async ({
       entityType: ref.entityType,
       slug: ref.collectionSlug,
       docId: ref.entityType === 'global' ? null : ref.docId,
-      locales: pending.map(record => record.targetLocale),
+      locales: pending.map(({ record }) => record.targetLocale),
     })
   } catch (err) {
     logger.warn({ err, msg: 'Translator onLiveWrite failed' })
   }
-  const revalidatedAt = new Date().toISOString()
-  for (const record of pending) {
+  // Marked with the translation it notified, not with "now": one that finishes while the
+  // hook runs stays newer than its mark and is notified on the next poll.
+  for (const { record, translatedAt } of pending) {
     try {
-      await markRevalidated(req.payload, { id: record.id, revalidatedAt })
+      await markRevalidated(req.payload, {
+        id: record.id,
+        revalidatedAt: translatedAt,
+      })
     } catch (err) {
       logger.warn({ err, msg: 'Could not save the translation revalidatedAt' })
     }
