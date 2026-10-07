@@ -396,6 +396,139 @@ describe('fingerprintOf a richText', () => {
   it('does not change the units sent to the model', () => {
     expect(unitsOf(base)).toEqual(['<1>Más info </1><2><3>aquí</3></2>'])
   })
+
+  const list = (
+    listType: string,
+    extra: Record<string, unknown>,
+    item: Record<string, unknown> = {},
+  ): TranslatableValue =>
+    richText({
+      type: 'list',
+      listType,
+      tag: listType === 'number' ? 'ol' : 'ul',
+      ...extra,
+      children: [{ type: 'listitem', value: 1, ...item, children: [text('Uno')] }],
+    })
+  const hola = richText(paragraph([text('Hola')]))
+
+  it.each([
+    ['alignment', hola, richText(paragraph([text('Hola')], { format: 'center' }))],
+    ['indent', hola, richText(paragraph([text('Hola')], { indent: 1 }))],
+    ['list start', list('number', { start: 1 }), list('number', { start: 3 })],
+    [
+      'checklist checked',
+      list('check', {}, { checked: false }),
+      list('check', {}, { checked: true }),
+    ],
+    ['text style', hola, richText(paragraph([text('Hola', { style: 'color: red' })]))],
+    [
+      'link newTab',
+      base,
+      richText(
+        paragraph([
+          text('Más info '),
+          {
+            type: 'link',
+            fields: { url: 'https://a.example', newTab: true, linkType: 'custom' },
+            children: [text('aquí')],
+          },
+        ]),
+      ),
+    ],
+  ])('changes when the %s copied from the source changes', (_, before, after) => {
+    expect(fingerprintOf(after)).not.toEqual(fingerprintOf(before))
+  })
+
+  it('counts custom link fields, whatever the order of their keys', () => {
+    const withRel = (rel: string, first: boolean): TranslatableValue =>
+      richText(
+        paragraph([
+          text('Más info '),
+          {
+            type: 'link',
+            fields: first
+              ? { rel, url: 'https://a.example', newTab: false, linkType: 'custom' }
+              : { url: 'https://a.example', newTab: false, linkType: 'custom', rel },
+            children: [text('aquí')],
+          },
+        ]),
+      )
+
+    expect(fingerprintOf(withRel('nofollow', true))).toEqual(
+      fingerprintOf(withRel('nofollow', false)),
+    )
+    expect(fingerprintOf(withRel('sponsored', true))).not.toEqual(
+      fingerprintOf(withRel('nofollow', true)),
+    )
+  })
+
+  it('ignores a change of only version or direction', () => {
+    const rewritten = richText(
+      paragraph([text('Más info ', { version: 2 }), link('https://a.example')], {
+        direction: 'rtl',
+        version: 2,
+      }),
+    )
+
+    expect(fingerprintOf(rewritten)).toEqual(fingerprintOf(base))
+  })
+
+  it('fingerprints a richText with only an upload by its structure', () => {
+    const upload = (value: string): TranslatableValue =>
+      richText({ type: 'upload', relationTo: 'media', value, fields: null })
+
+    expect(fingerprintOf(upload('m1'))).not.toBeNull()
+    expect(fingerprintOf(upload('m2'))).not.toEqual(fingerprintOf(upload('m1')))
+    expect(fingerprintOf({ ...upload('m1'), value: null })).toBeNull()
+  })
+
+  it('still has no fingerprint when empty or with only empty paragraphs', () => {
+    expect(fingerprintOf(richText())).toBeNull()
+    expect(fingerprintOf(richText(paragraph([]), paragraph([text('  ')])))).toBeNull()
+  })
+})
+
+describe('planTranslation with a richText without text', () => {
+  const uploadOnly = (path: string, value: unknown): TranslatableValue => ({
+    path,
+    segments: [{ key: path }],
+    kind: 'richText',
+    value,
+  })
+  const state = {
+    root: {
+      type: 'root',
+      children: [
+        { type: 'upload', relationTo: 'media', value: 'm1' },
+        { type: 'horizontalrule' },
+      ],
+    },
+  }
+
+  it('copies it to an empty target and leaves it once the target holds it', () => {
+    const first = planTranslation({
+      source: [uploadOnly('gallery', state)],
+      target: [uploadOnly('gallery', null)],
+      overwriteEdited: false,
+    })
+    expect(first.translate.map(value => value.path)).toEqual(['gallery'])
+
+    const hash = fingerprintOf(uploadOnly('gallery', state))!
+    const again = planTranslation({
+      source: [uploadOnly('gallery', state)],
+      target: [uploadOnly('gallery', state)],
+      previous: { gallery: { source: hash, output: hash } },
+      overwriteEdited: false,
+    })
+    expect(again.translate).toEqual([])
+  })
+
+  it('counts it as changed and as missing like any other field', () => {
+    const source = [uploadOnly('gallery', state)]
+
+    expect(countChanged({ source, hashes: {} })).toBe(1)
+    expect(countMissing({ source, target: [uploadOnly('gallery', null)] })).toBe(1)
+  })
 })
 
 describe('planTranslation with overwriteEdited', () => {

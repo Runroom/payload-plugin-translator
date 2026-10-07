@@ -353,6 +353,76 @@ describe('collectTranslatables edge cases', () => {
   })
 })
 
+describe('collectTranslatables exclusion of layout fields', () => {
+  const exclude = { translator: 'exclude' }
+  const title: Field = { name: 'title', type: 'text', localized: true }
+  const kept: Field = { name: 'kept', type: 'text', localized: true }
+  const data = { title: 'Hola', kept: 'Sí', meta: { title: 'Hola' } }
+  const pathsOf = (fields: Field[]): string[] =>
+    collectTranslatables({ fields, data }).map(value => value.path)
+
+  it('skips everything inside an excluded collapsible', () => {
+    expect(
+      pathsOf([
+        { type: 'collapsible', label: 'X', custom: exclude, fields: [title] },
+        kept,
+      ]),
+    ).toEqual(['kept'])
+  })
+
+  it('skips everything inside an excluded row', () => {
+    expect(pathsOf([{ type: 'row', custom: exclude, fields: [title] }, kept])).toEqual([
+      'kept',
+    ])
+  })
+
+  it('skips everything inside an excluded unnamed group', () => {
+    expect(pathsOf([{ type: 'group', custom: exclude, fields: [title] }, kept])).toEqual([
+      'kept',
+    ])
+  })
+
+  it('skips every tab of an excluded tabs field', () => {
+    expect(
+      pathsOf([
+        {
+          type: 'tabs',
+          custom: exclude,
+          tabs: [
+            { label: 'A', fields: [title] },
+            { name: 'meta', label: 'B', fields: [title] },
+          ],
+        },
+        kept,
+      ]),
+    ).toEqual(['kept'])
+  })
+
+  it('skips an excluded tab, named or unnamed, and walks the others', () => {
+    const withTabs = (excluded: 'unnamed' | 'named'): Field[] => [
+      {
+        type: 'tabs',
+        tabs: [
+          {
+            label: 'A',
+            fields: [title],
+            ...(excluded === 'unnamed' ? { custom: exclude } : {}),
+          },
+          {
+            name: 'meta',
+            label: 'B',
+            fields: [title],
+            ...(excluded === 'named' ? { custom: exclude } : {}),
+          },
+        ],
+      },
+    ]
+
+    expect(pathsOf(withTabs('unnamed'))).toEqual(['meta.title'])
+    expect(pathsOf(withTabs('named'))).toEqual(['title'])
+  })
+})
+
 describe('findLocalizedContainers nesting', () => {
   const hero: Block = {
     slug: 'hero',

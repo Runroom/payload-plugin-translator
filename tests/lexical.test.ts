@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { LexicalNode, LexicalState } from '../src/core/lexical.js'
 import {
   extractContainers,
+  hasNonTextContent,
   isLexicalState,
   MarkError,
   replaceContainers,
@@ -260,6 +261,38 @@ describe('stricter mark validation', () => {
   it('does not take { root: null } for a lexical state', () => {
     expect(isLexicalState({ root: null })).toBe(false)
     expect(isLexicalState({ root: { type: 'root' } })).toBe(true)
+  })
+
+  it('copies a state without containers whole when given no translations', () => {
+    const uploads: LexicalState = {
+      root: {
+        type: 'root',
+        children: [
+          { type: 'upload', relationTo: 'media', value: 'm1' },
+          { type: 'horizontalrule' },
+        ],
+      },
+    }
+
+    expect(extractContainers(uploads)).toEqual([])
+    expect(hasNonTextContent(uploads)).toBe(true)
+    expect(replaceContainers(uploads, [])).toEqual(uploads)
+  })
+
+  it('finds no content without text in an empty editor or empty paragraphs', () => {
+    const empty = (children: LexicalNode[]): LexicalState => ({
+      root: { type: 'root', children },
+    })
+
+    expect(hasNonTextContent(empty([]))).toBe(false)
+    expect(
+      hasNonTextContent(
+        empty([
+          { type: 'paragraph', children: [] },
+          { type: 'paragraph', children: [{ type: 'linebreak' }, text(' ')] },
+        ]),
+      ),
+    ).toBe(false)
   })
 
   it('throws when there are more translations than containers', () => {

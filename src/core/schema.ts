@@ -47,8 +47,9 @@ const asRows = (value: unknown): Row[] =>
 const pathOf = (segments: PathSegment[]): string =>
   segments.map(({ key, rowId }) => (rowId ? `${key}.${rowId}` : key)).join('.')
 
-const isExcluded = (field: Field): boolean =>
-  (field.custom as Record<string, unknown> | undefined)?.translator === 'exclude'
+// Takes a tab too, which is not a `Field` but has its own `custom`.
+const isExcluded = ({ custom }: { custom?: Record<string, unknown> }): boolean =>
+  custom?.translator === 'exclude'
 
 const blocksOf = (field: Field & { type: 'blocks' }, configBlocks: Block[]): Block[] => {
   const references = (field.blockReferences ?? []).map(reference =>
@@ -100,6 +101,7 @@ type VisitArgs = {
 const visitTabs = ({ field, data, segments, context, permissions }: VisitArgs): void => {
   if (field.type !== 'tabs') return
   for (const tab of field.tabs) {
+    if (isExcluded(tab)) continue
     const named = tabHasName(tab)
     const entry = named ? entryOf(permissions, tab.name) : true
     if (!canTranslate(entry)) continue
@@ -251,23 +253,12 @@ const visitLocalized = ({
   })
 }
 
-const visitDataField = ({
-  field,
-  data,
-  segments,
-  context,
-  permissions,
-}: VisitArgs): void => {
-  if (!fieldAffectsData(field) || isExcluded(field)) return
-  if (visitContainer({ field, data, segments, context, permissions })) return
-  visitLocalized({ field, data, segments, context, permissions })
-}
-
-const walk = ({ fields, data, segments, context, permissions }: WalkArgs): void => {
+const walk = ({ fields, ...rest }: WalkArgs): void => {
   for (const field of fields) {
-    if (!visitLayout({ field, data, segments, context, permissions })) {
-      visitDataField({ field, data, segments, context, permissions })
-    }
+    // Before `visitLayout`: an excluded `row`, `collapsible`, `tabs` or group hides its children.
+    if (isExcluded(field)) continue
+    const args = { field, ...rest }
+    if (!visitLayout(args) && !visitContainer(args)) visitLocalized(args)
   }
 }
 

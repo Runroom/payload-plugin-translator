@@ -188,6 +188,53 @@ describe('translateUnits', () => {
     ).rejects.toThrow(/title/)
   })
 
+  it('treats a blank answer for a plain text unit as broken and retries it', async () => {
+    const translate = vi
+      .fn()
+      .mockResolvedValueOnce({ u0: '  ', u1: 'Curs' })
+      .mockResolvedValueOnce({ u0: 'Títol' })
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map([
+        ['a', 'Titulo'],
+        ['b', 'Curso'],
+      ]),
+      withMarks: () => false,
+    })
+
+    expect(translate.mock.calls[1]![0].units).toEqual({ u0: 'Titulo' })
+    expect(result.get('a')).toBe('Títol')
+  })
+
+  it('fails with MarkError when a plain text unit stays blank after the retry', async () => {
+    const translate = vi.fn().mockResolvedValue({ u0: '' })
+
+    await expect(
+      translateUnits({
+        ...base,
+        provider: { translate },
+        units: new Map([['title', 'Curso']]),
+        withMarks: () => false,
+      }),
+    ).rejects.toThrow(MarkError)
+    expect(translate).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not call the provider without units', async () => {
+    const translate = vi.fn()
+
+    const result = await translateUnits({
+      ...base,
+      provider: { translate },
+      units: new Map(),
+    })
+
+    expect(result.size).toBe(0)
+    expect(translate).not.toHaveBeenCalled()
+  })
+
   it.each(['<1/>', '<1> <2>x</2></1>'])(
     'the fake provider keeps the marks of %s valid',
     async source => {

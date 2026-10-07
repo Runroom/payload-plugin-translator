@@ -64,6 +64,11 @@ const translateAll = async (
   return result
 }
 
+// A blank answer for a unit with text would empty the target field; for a plain text unit
+// nothing else catches it, since it has no marks to compare.
+const isBlankFor = (source: string, text: string): boolean =>
+  source.trim() !== '' && text.trim() === ''
+
 const brokenIn = (
   { withMarks = (): boolean => true }: Args,
   units: Map<string, string>,
@@ -71,10 +76,16 @@ const brokenIn = (
 ): [string, string][] =>
   [...units].filter(([id, source]) => {
     const text = result.get(id)
-    return text === undefined || (withMarks(id) && !marksMatch(source, text))
+    return (
+      text === undefined ||
+      isBlankFor(source, text) ||
+      (withMarks(id) && !marksMatch(source, text))
+    )
   })
 
 export const translateUnits = async (args: Args): Promise<Map<string, string>> => {
+  // A plan with only unit-less rich text (uploads, blocks) is rebuilt from the source alone.
+  if (args.units.size === 0) return new Map()
   const result = await translateAll(args, [...args.units])
   const broken = brokenIn(args, args.units, result)
   if (broken.length === 0) return result
