@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# One release run at a time: a second push waits instead of racing the version PR or a publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      # Version PR: push its branch and open it. Publish: push the tag and the GitHub release.
+      contents: write
+      pull-requests: write
+      # npm provenance: lets npm verify the package was built by this workflow.
+      id-token: write
+    env:
+      # Secrets cannot appear in `if:` directly; this flag can.
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+
+      - uses: changesets/action/select-mode@v2
+        id: mode
+
+      - if: steps.mode.outputs.mode == 'version'
+        uses: changesets/action/version@v2
+        with:
+          pr-title: Version Packages
+          commit-message: Version Packages
+
+      # Without an NPM_TOKEN secret the publish step is skipped, so merging to main cannot
+      # fail on a missing token or publish by accident before the npm side is set up.
+      - if: steps.mode.outputs.mode == 'publish' && env.HAS_NPM_TOKEN == 'true'
+        uses: changesets/action/publish@v2
+        with:
+          script: pnpm release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - if: steps.mode.outputs.mode == 'publish' && env.HAS_NPM_TOKEN != 'true'
+        run: echo "::notice::NPM_TOKEN is not set; skipping the npm publish."
