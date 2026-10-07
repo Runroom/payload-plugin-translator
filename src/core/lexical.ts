@@ -14,9 +14,9 @@ export class MarkError extends Error {
   override readonly name = 'MarkError'
 }
 
-// `inlineBlock` counts as a void: its content is not translated (it is copied from the
-// source), but without it a `text + block + text` paragraph would not count as a container
-// and would be left entirely untranslated.
+// `inlineBlock` is treated as a void inline node. Its content is copied from the source,
+// not translated, but without it a `text + block + text` paragraph would not be a container
+// and none of its text would be translated.
 const INLINE_TYPES = new Set([
   'text',
   'link',
@@ -27,9 +27,9 @@ const INLINE_TYPES = new Set([
 ])
 const VOID_TYPES = new Set(['linebreak', 'tab', 'inlineBlock'])
 
-// A literal `<18>` or `</2>` in the text would be taken for marks when parsing; they are sent
-// as entities and the prompt asks the model to keep them. It is undone when parsing, so a
-// stray `<` the model returns without forming a mark is still plain text.
+// A literal `<18>` or `</2>` in the text would parse as a mark, so `<` and `&` are sent as
+// entities and the prompt asks the model to keep them. Parsing decodes them again, so a
+// stray `<` the model returns without forming a mark stays plain text.
 const escapeText = (text: string): string =>
   text.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
 
@@ -48,16 +48,16 @@ const hasText = (nodes: LexicalNode[]): boolean =>
   )
 
 // A node that mixes inline and block children is not a container, so its text is not
-// translated. Lexical nests sublists inside their own `listitem`, so real content does
-// not hit this.
+// translated. Real content does not hit this, because Lexical nests sublists inside their
+// own `listitem`.
 const isContainer = (node: LexicalNode): boolean =>
   Array.isArray(node.children) &&
   node.children.length > 0 &&
   node.children.every(child => INLINE_TYPES.has(child.type)) &&
   hasText(node.children)
 
-// An empty link has no text mark inside, so `<n></n>` would be taken for a text leaf.
-// Marking it as a void keeps the invariant that every childless pair is a text node.
+// An empty link has no text mark inside, so `<n></n>` would look like a text leaf.
+// Treating it as a void keeps every childless pair a text node.
 const isVoidNode = (node: LexicalNode): boolean =>
   VOID_TYPES.has(node.type) || (node.type !== 'text' && !node.children?.length)
 
@@ -99,9 +99,9 @@ const idOf = (value: unknown): unknown => (isRecord(value) ? value.id : value) ?
 const MAX_DECODES = 10
 
 // Payload's link `beforeChange` runs `encodeURIComponent` on every url its `validateUrl`
-// rejects (`example.com/x`, `http://localhost:3000/x`), even if it was already encoded:
-// each save adds a layer (`%2F` → `%252F`). The fingerprint compares the url without
-// layers; otherwise the freshly written target would never match when read back.
+// rejects (`example.com/x`, `http://localhost:3000/x`), even when it is already encoded, so
+// each save adds a layer (`%2F` → `%252F`). The fingerprint compares the fully decoded url;
+// otherwise a freshly written target would never match when read back.
 const canonicalUrl = (url: unknown): unknown => {
   if (typeof url !== 'string') return url ?? null
   let current = url
@@ -128,9 +128,9 @@ const sortKeys = (value: unknown): unknown => {
   )
 }
 
-// The whole `fields` object is copied to the target, custom link fields included, so all
-// of it counts. `url` without encoding layers and `doc` by id, so saving or populating the
-// relation does not count as a change.
+// The whole `fields` object is copied to the target, custom link fields included, so all of
+// it counts. `url` is decoded and `doc` reduced to its id, so saving or populating the
+// relation is not a change.
 const linkFields = (fields: Record<string, unknown>): Summary =>
   sortKeys({
     ...fields,
@@ -151,12 +151,12 @@ const listAttributes = (node: LexicalNode): Summary => {
 }
 
 // The target is a clone of the source with only the text replaced, so every attribute that
-// changes how it renders is copied from the source and has to count. Each one is picked by
-// hand with its default, because Lexical writes the defaults when the document is opened
-// (`format: ''`, `indent: 0`, `style: ''`). Left out: `version`, `direction` (Lexical
-// recomputes it from the text, so it differs per language), `textFormat`/`textStyle` on
-// elements (they follow the selection), text `detail`/`mode` (editing behaviour, not
-// rendering) and listitem `value` (Lexical renumbers it from the list `start` and the
+// affects rendering comes from the source and must count. Each one is listed explicitly
+// with its default, because Lexical writes the defaults when the document is opened
+// (`format: ''`, `indent: 0`, `style: ''`). Excluded: `version`; `direction` (Lexical
+// recomputes it from the text, so it differs per language); `textFormat`/`textStyle` on
+// elements (they follow the selection); text `detail`/`mode` (editing behaviour, not
+// rendering); and listitem `value` (Lexical renumbers it from the list `start` and the
 // position, which already count).
 const formatOf = (node: LexicalNode): Summary =>
   node.type === 'text'
@@ -174,10 +174,10 @@ const attributesOf = (node: LexicalNode): Summary => {
   return summary
 }
 
-// A block's `fields` (`block`, `inlineBlock`, `upload`) are not translated: they are
-// copied from the source, so editing them has to make the target stale. With sorted keys so
-// the order in which the admin serializes them does not count, and without the block's
-// `id`, which is not content.
+// The `fields` of a `block`, `inlineBlock` or `upload` are copied from the source, not
+// translated, so editing them must make the target stale. Keys are sorted so the admin's
+// serialization order does not matter, and the block's `id` is dropped because it is not
+// content.
 const blockFields = (node: LexicalNode): Summary | null => {
   if (!isRecord(node.fields)) return null
   const { id: _id, ...rest } = node.fields
@@ -188,7 +188,7 @@ const summarize = (node: LexicalNode): Summary => {
   const summary = attributesOf(node)
   if (node.children?.length) return { ...summary, children: node.children.map(summarize) }
   if (node.type === 'text') return summary
-  // An empty link already has its `fields` summarized by `attributesOf`; those win.
+  // For an empty link, the `fields` summarized by `attributesOf` take precedence.
   return {
     fields: blockFields(node),
     ...summary,
@@ -202,7 +202,7 @@ export const structureOf = (state: LexicalState): Summary => summarize(state.roo
 
 const TEXT_LEAVES = new Set(['text', 'linebreak', 'tab'])
 
-// Element nodes always carry a `children` array; a node without one that is not text
+// Element nodes always have a `children` array. A node without one that is not a text leaf
 // (`upload`, `block`, `inlineBlock`, `horizontalrule`…) is content even with no text
 // around it. An empty editor (no children, or only empty paragraphs) has none.
 const hasNodeContent = (node: LexicalNode): boolean =>
@@ -290,9 +290,9 @@ const sameAttributes = (a: LexicalNode, b: LexicalNode): boolean => {
   return [...keys].every(key => JSON.stringify(a[key]) === JSON.stringify(b[key]))
 }
 
-// Lexical merges adjacent texts with the same format on save; if the model puts them
-// together when reordering and they are not merged here, the first edit of the draft
-// changes the JSON and the fingerprint would take it as edited by hand.
+// Lexical merges adjacent texts with the same format on save. If the model's reordering
+// leaves two such texts side by side and they are not merged here, the first edit of the
+// draft changes the JSON and the fingerprint reports the field as edited by hand.
 const mergeTexts = (nodes: LexicalNode[]): LexicalNode[] =>
   nodes.reduce<LexicalNode[]>((merged, node) => {
     const previous = merged[merged.length - 1]

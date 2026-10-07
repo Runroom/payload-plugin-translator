@@ -3,6 +3,10 @@ import type { CollectionConfig, Payload } from 'payload'
 import type { FieldHashes } from '../core/plan.js'
 import type { EntityRef } from './entity.js'
 
+/**
+ * Slug of the hidden collection that keeps one translation record per entity and target
+ * locale. It is closed over REST and GraphQL; only the plugin reads and writes it.
+ */
 export const RECORDS_SLUG = 'translation-records'
 
 export type RecordKey = EntityRef & { targetLocale: string }
@@ -10,7 +14,7 @@ export type RecordKey = EntityRef & { targetLocale: string }
 export type TranslationRecord = {
   id: string
   status: 'queued' | 'running' | 'done' | 'failed'
-  // Locale it was last translated from; the `fields` fingerprints are of that text.
+  // Locale it was last translated from; the `fields` fingerprints are of its text.
   sourceLocale?: string | null
   fields: FieldHashes | null
   kept: string[] | null
@@ -21,10 +25,10 @@ export type TranslationRecord = {
 }
 
 // Only the plugin touches the records, through the Local API, which skips `access`. Over
-// REST and GraphQL nobody may create, change or delete one (that would bypass the lock or
-// forge the fingerprints), nor read one: a record names a document and keeps its errors,
-// and the plugin's `access` knows nothing of the document's own. `GET /status` is the way
-// in, and it checks both.
+// REST and GraphQL nobody may write one, which would bypass the lock or forge the
+// fingerprints, or read one, since a record names a document and keeps its errors and the
+// plugin's `access` does not cover the document's own. Reads go through `GET /status`,
+// which checks both.
 const DENY = (): boolean => false
 
 export const recordsCollection = (): CollectionConfig => {
@@ -63,7 +67,7 @@ export const recordsCollection = (): CollectionConfig => {
       { name: 'kept', type: 'json' },
       { name: 'error', type: 'textarea' },
       { name: 'translatedAt', type: 'date' },
-      // When the website was told about a translation written without drafts (`onLiveWrite`).
+      // When `onLiveWrite` was last called for a translation written without drafts.
       { name: 'revalidatedAt', type: 'date' },
     ],
   }
@@ -154,8 +158,8 @@ export const saveRecord = async (
       data: { ...key, ...data } as never,
     })
   } catch (error) {
-    // The unique index rejects the create if another process got in between the lookup
-    // and the write; in that case updating its record is enough.
+    // The unique index rejects the create if another process created the record between
+    // the lookup and the write. Updating that record is enough.
     const winner = await findRecord(payload, key)
     if (!winner) throw error
     await updateRecord(payload, winner.id, data)

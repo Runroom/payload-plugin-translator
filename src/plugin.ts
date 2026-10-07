@@ -9,6 +9,23 @@ import { translatorEndpoints } from './server/endpoints.js'
 import { recordsCollection } from './server/records.js'
 import { translateTask } from './server/task.js'
 
+/**
+ * Adds AI translation of localized fields to the configured collections and globals: a
+ * "Translate" control in the admin, the `/api/translator/*` endpoints, the
+ * `translation-records` collection and the `translateDocument` job task.
+ *
+ * @example
+ * ```ts
+ * translatorPlugin({
+ *   collections: { pages: {}, posts: { locales: ['en', 'es'] } },
+ *   globals: { footer: {} },
+ *   provider: process.env.OPENAI_API_KEY
+ *     ? openAIProvider({ apiKey: process.env.OPENAI_API_KEY, model: 'gpt-5-mini' })
+ *     : null,
+ *   access: ({ req }) => Boolean(req.user),
+ * })
+ * ```
+ */
 export const translatorPlugin =
   (options: TranslatorPluginOptions): Plugin =>
   (config: Config): Config => {
@@ -36,9 +53,9 @@ export const translatorPlugin =
       endpoints: [...(config.endpoints ?? []), ...translatorEndpoints(settings)],
       jobs: {
         ...config.jobs,
-        // The task's concurrency key only counts with this on; it adds the indexed
-        // `concurrencyKey` column to the jobs collection (a migration in the project). An
-        // explicit `false` from the project is respected.
+        // The task's concurrency key has no effect without this. Turning it on adds the
+        // indexed `concurrencyKey` column to the jobs collection, so the project needs a
+        // migration. An explicit `false` in the project config wins.
         enableConcurrencyControl: config.jobs?.enableConcurrencyControl ?? true,
         tasks: [...(config.jobs?.tasks ?? []), translateTask(settings)],
       },

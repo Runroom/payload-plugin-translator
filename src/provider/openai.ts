@@ -20,6 +20,10 @@ type CreateResult = {
   output?: OutputItem[]
 }
 
+/**
+ * The subset of the `openai` client that `openAIProvider` calls. Pass your own to reuse a
+ * configured client or to stub it in tests.
+ */
 export type OpenAIClientLike = {
   responses: { create: (args: CreateArgs) => Promise<CreateResult> }
 }
@@ -57,8 +61,8 @@ const schemaFor = (keys: string[]): Record<string, unknown> => ({
   additionalProperties: false,
 })
 
-// A 429 for an exhausted quota (`insufficient_quota`) is not fixed by waiting: it is
-// billing, not rate limiting.
+// A 429 with `insufficient_quota` is a billing problem, not rate limiting, so waiting
+// does not fix it.
 const isQuotaExhausted = (error: { code?: unknown; error?: unknown }): boolean =>
   error.code === 'insufficient_quota' ||
   (error.error as { code?: unknown } | null | undefined)?.code === 'insufficient_quota'
@@ -77,8 +81,8 @@ const refusalOf = (response: CreateResult): string | undefined =>
     .flatMap(item => item.content ?? [])
     .find(part => part.type === 'refusal')?.refusal
 
-// A response cut by `max_output_tokens` may come out whole on another attempt; a refusal
-// from the model or a content-filter cut would repeat the same way with the same text.
+// A response cut by `max_output_tokens` may come back whole on another attempt. A refusal
+// or a content-filter cut would happen again with the same text.
 const assertUsable = (response: CreateResult): void => {
   const refusal = refusalOf(response)
   if (refusal !== undefined) {
@@ -111,10 +115,24 @@ const parseReply = (outputText: string, keys: string[]): Record<string, string> 
   return reply as Record<string, string>
 }
 
+/**
+ * A provider backed by the OpenAI Responses API with a strict JSON schema, a 60 s timeout
+ * and one SDK retry. Requires the optional `openai` peer dependency.
+ *
+ * @example
+ * ```ts
+ * import { openAIProvider } from '@runroom/payload-plugin-translator/openai'
+ *
+ * translatorPlugin({
+ *   // ...
+ *   provider: openAIProvider({ apiKey: process.env.OPENAI_API_KEY!, model: 'gpt-5-mini' }),
+ * })
+ * ```
+ */
 export const openAIProvider = ({
   apiKey,
   model,
-  // The SDK defaults (10 min and 2 retries) would keep a job alive beyond the window in
+  // The SDK defaults (10 min and 2 retries) would keep a job running past the window in
   // which its record locks the document (`BUSY_WINDOW_MS` in server/limits.ts).
   client = new OpenAI({
     apiKey,
@@ -122,8 +140,14 @@ export const openAIProvider = ({
     maxRetries: 1,
   }) as unknown as OpenAIClientLike,
 }: {
+  /** OpenAI API key. Ignored when `client` is given. */
   apiKey: string
+  /** Model name, for example `'gpt-5-mini'`. */
   model: string
+  /**
+   * A client to use instead of the one built from `apiKey`.
+   * @default new OpenAI({ apiKey, timeout: 60_000, maxRetries: 1 })
+   */
   client?: OpenAIClientLike
 }): TranslationProvider => ({
   translate: async request => {

@@ -9,18 +9,48 @@ import type {
 } from '../server/settings.js'
 import { localizationOf } from '../server/settings.js'
 
+/**
+ * Options for one collection or global. `locales` are the locales the entity is translated
+ * between; they must exist in `localization`, be at least two, and default to every locale
+ * in `localization`.
+ */
 export type TranslatorEntityOptions = { locales?: string[] }
 
 type EntityOptions = Record<string, TranslatorEntityOptions>
 
+/** Options for `translatorPlugin`. */
 export type TranslatorPluginOptions = {
+  /** Collections to translate, by slug. `{}` is enough in the usual case. */
   collections: EntityOptions
+  /**
+   * Globals to translate, by slug, with the same shape as `collections`.
+   * @default {}
+   */
   globals?: EntityOptions
+  /**
+   * The translation backend. With `null` the plugin registers the same schema and still
+   * reports status, but hides the button and answers `POST /translate` with 503. Use it to
+   * run without an API key.
+   */
   provider: TranslationProvider | null
+  /**
+   * Extra instructions for the model (context, tone, terminology), appended to the
+   * provider's own prompt.
+   * @default () => ''
+   */
   instructions?: (args: { sourceLocale: string; targetLocale: string }) => string
+  /** Decides who may use the translator endpoints. */
   access: TranslatorAccess
+  /**
+   * Jobs queue the translation jobs go to. Make sure `jobs.autoRun` or an external cron
+   * processes it, or retries never run.
+   * @default 'translations'
+   */
   queue?: string
-  // Tells the website about what was written without drafts; see `server/liveWrites.ts`.
+  /**
+   * Called after a translation of an entity without drafts is written, so you can
+   * revalidate the public site. It runs from `GET /status`, not from the job.
+   */
   onLiveWrite?: OnLiveWrite
 }
 

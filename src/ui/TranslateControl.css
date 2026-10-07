@@ -1,6 +1,6 @@
-/* Only Payload admin tokens (--theme-*, --color-blue-*, --base, --style-radius-*): the
-   plugin cannot depend on the project's. Payload has no "info" tone that changes with the
-   theme, so its blue is taken and lightened by hand in dark mode. */
+/* Only Payload admin tokens (--theme-*, --color-blue-*, --base, --style-radius-*), since
+   the plugin cannot depend on the project's. Payload has no theme-aware "info" tone, so its
+   blue is used and lightened by hand in dark mode. */
 :is(.rr-translator, .rr-translator-drawer) [data-tone='neutral'] {
   --rr-tone: var(--theme-elevation-500);
 }
@@ -81,8 +81,8 @@ html[data-theme='dark'] :is(.rr-translator, .rr-translator-drawer) [data-tone='i
   outline-offset: var(--accessibility-outline-offset);
 }
 
-/* Notices: the shape of Payload's Banner, with the border and the icon in the tone's
-   color and the text in the usual one, which is what carries the meaning. */
+/* Notices take the shape of Payload's Banner. The border and icon use the tone's color;
+   the text, which carries the meaning, keeps the regular color. */
 .rr-translator__notice {
   display: flex;
   align-items: center;
@@ -95,7 +95,7 @@ html[data-theme='dark'] :is(.rr-translator, .rr-translator-drawer) [data-tone='i
   line-height: 1.4;
 }
 
-/* In the controls bar, a single line: the long text goes to the screen reader. */
+/* A single line in the controls bar; the long text goes to screen readers. */
 .rr-translator .rr-translator__notice {
   gap: calc(var(--base) * 0.3);
   padding: calc(var(--base) * 0.15) calc(var(--base) * 0.4);
@@ -140,9 +140,9 @@ html[data-theme='dark'] :is(.rr-translator, .rr-translator-drawer) [data-tone='i
   color: var(--rr-tone);
 }
 
-/* Drawer as a side panel. Payload sets the width of `.drawer__content` inline
-   (`calc(100% - gutter)`), so only `!important` narrows it; the close button in front of
-   it grows and fills the rest as a backdrop. */
+/* The drawer as a side panel. Payload sets the width of `.drawer__content` inline
+   (`calc(100% - gutter)`), so only `!important` can narrow it; the close button before it
+   grows to fill the rest as a backdrop. */
 .rr-translator-drawer .drawer__content {
   width: min(38rem, 100%) !important;
   flex: none;
@@ -254,7 +254,7 @@ label.rr-translator__row-label {
   align-self: center;
 }
 
-/* Indeterminate progress of the locale in progress, flush with the row's bottom edge. */
+/* Indeterminate progress bar for a running locale, flush with the row's bottom edge. */
 .rr-translator__row[data-state='running']::after {
   content: '';
   position: absolute;

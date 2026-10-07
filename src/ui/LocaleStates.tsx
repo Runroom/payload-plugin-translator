@@ -36,9 +36,9 @@ const STATES: Record<RowState, { key: TranslatorKey; tone: Tone }> = {
 const isFreshlyDone = (state: RowState): boolean =>
   state === 'draftReady' || state === 'published'
 
-// A locale freshly translated during this visit is the one that deserves "Review", and the
-// pill says where it ended up: as a draft, pending publication, or already published if the
-// entity has no drafts.
+// Only locales translated during this visit get "Review", and their pill says where the
+// translation ended up: a draft pending publication, or already published when the entity
+// has no drafts.
 const rowState = ({
   item,
   translated,
@@ -60,7 +60,7 @@ export const isUpToDate = (item: LocaleStatus): boolean =>
 type RowProps = {
   item: LocaleStatus
   label: string
-  // Name of the locale this one was translated from, which its state is measured against.
+  // Name of the locale this one was translated from; its state is measured against it.
   sourceLabel: string
   state: RowState
   selected: boolean
@@ -108,10 +108,10 @@ const StatePill = ({ id, state }: { id: string; state: RowState }): ReactElement
   )
 }
 
-// The actions wait for the end of the batch: while a locale is still in progress, "Review"
-// would lead to a text the job can still rewrite and "Retry" would get a 409. They stay
-// mounted but inert (`aria-disabled`, like the submit button): unmounting them would drop
-// the focus of whoever just pressed "Retry" onto the `<dialog>`.
+// The actions are inert until the batch ends: while a locale is in progress, "Review" would
+// open text the job may still rewrite and "Retry" would get a 409. They stay mounted with
+// `aria-disabled`, like the submit button, because unmounting them would drop the focus of
+// a user who just pressed "Retry" onto the `<dialog>`.
 const inertProps = (busy: boolean): Record<string, string | undefined> => ({
   'aria-disabled': busy ? 'true' : undefined,
 })
@@ -168,9 +168,10 @@ const rowActions = (props: RowProps, t: Translate): ReactElement | null => {
   return null
 }
 
-// When the retried locale becomes "Queued", its button disappears with the focus inside;
-// the focus is returned to the checkbox of the same row. It is checked on unmount, while the
-// button is still in the document, and moved afterwards only if nothing else picked it up.
+// When the retried locale becomes "Queued", its button unmounts while it has focus, so
+// focus returns to the checkbox of the same row. Whether the button had focus is checked on
+// unmount, while it is still in the document, and focus is moved afterwards only if
+// nothing else took it.
 const RowActions = ({
   fallbackFocus,
   children,
@@ -291,7 +292,8 @@ export const LocaleStates = ({
           />
         ))}
       </ul>
-      {/* Always mounted and empty: that way the screen reader announces the error when it appears. */}
+      {/* Always mounted, even when empty, so screen readers announce the error when it
+          appears. */}
       <p id={errorId} role="alert" className="rr-translator__field-error">
         {error}
       </p>

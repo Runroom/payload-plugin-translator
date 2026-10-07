@@ -30,8 +30,8 @@ const errorCodeOf = async (
   }
 }
 
-// A 500 `records-failed` is not a failure to start: the job is already queued, but without
-// records the status cannot follow it. Other 5xx responses and network failures are.
+// A 500 `records-failed` means the job did start but its records could not be saved, so the
+// status cannot follow it. Other 5xx responses and network failures mean it did not start.
 const refusalOf = async (response: Response): Promise<Message | null> => {
   if (response.ok) return null
   const key = REFUSALS[response.status]
@@ -69,9 +69,10 @@ export type SendTranslation = (request: {
 
 type Visit = { key: string | null; translated: string[]; notice: Message | null }
 
-// What one document's visit has started and been told. It is keyed by the document: if
-// the control is reused for another one without remounting, the previous document's
-// locales must not turn "ready" there, nor its notice show.
+// What was started, and what the server answered, during a visit to one document. It is
+// keyed by the document so that, if the control is reused for another document without
+// remounting, the previous document's locales do not turn "ready" and its notice does not
+// show.
 const useVisit = (
   key: string | null,
 ): {
@@ -96,7 +97,7 @@ const useVisit = (
   }
 }
 
-// `onLaunched` and `onRefused` tell the summary which batch to follow; `translated`
+// `onLaunched` and `onRefused` tell the summary which batch to follow. `translated`
 // accumulates the locales started during this visit, which become "ready" when they
 // finish.
 export const useTranslateRequest = ({

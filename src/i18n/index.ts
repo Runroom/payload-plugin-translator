@@ -3,15 +3,18 @@ import type { Config } from 'payload'
 import { en } from './en.js'
 import { es } from './es.js'
 
-// The admin strings the plugin ships, by language. Spread them into
-// `i18n.translations` to tweak a text or to add a language.
+/**
+ * The admin strings the plugin ships, by language, under the `translator` namespace.
+ * `translatorTranslations.en.translator` lists every key; override single keys or add a
+ * language through your own `i18n.translations`.
+ */
 export const translatorTranslations = { en, es }
 
 type Translations = Record<string, Record<string, unknown>>
 
 type Catalog = { translator: Record<string, string> }
 
-// The project's strings win: that way it can tweak one drawer text without losing the rest.
+// The project's strings win, so it can override one key and keep the rest.
 const mergeLanguage = (
   current: Record<string, unknown> | undefined,
   ours: Catalog,
@@ -23,7 +26,7 @@ const mergeLanguage = (
   },
 })
 
-// Every admin language gets the plugin's strings: one without a catalog of its own falls
+// Every admin language gets the plugin's strings. A language without its own catalog falls
 // back to English instead of showing the raw keys.
 export const mergeTranslations = (
   config: Config,

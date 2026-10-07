@@ -25,7 +25,8 @@ const decide = ({
   const ours =
     previous !== undefined && previous.output !== null && targetHash === previous.output
   if (ours && previous.source === sourceHash) return 'unchanged'
-  // `overwriteEdited` only rescues what would be `kept`: what is up to date is not redone.
+  // `overwriteEdited` only affects fields that would be `kept`; up-to-date fields are not
+  // translated again.
   if (targetHash === null || ours || overwriteEdited) return 'translate'
   return 'kept'
 }
@@ -47,8 +48,8 @@ export const planTranslation = ({
   for (const value of source) {
     const sourceHash = fingerprintOf(value)
     if (sourceHash === null) {
-      // An emptied source does not erase what we know about the target: when it is filled
-      // again, the old translation must still be ours and not pass for edited by hand.
+      // Keep the hashes of an emptied source field. When it is filled again, the old
+      // translation must still count as ours, not as edited by hand.
       const kept = previous[value.path]
       if (kept !== undefined) plan.hashes[value.path] = kept
       continue
@@ -84,8 +85,8 @@ export const countChanged = ({
     return hash !== null && hashes[value.path]?.source !== hash
   }).length
 
-// A field someone emptied by hand in the target is not revealed by the source
-// fingerprint: without this, the locale would stay "up to date" with the field blank.
+// The source fingerprint cannot detect a field someone emptied in the target. Without this
+// count, the locale would be reported as up to date with the field blank.
 export const countMissing = ({
   source,
   target,

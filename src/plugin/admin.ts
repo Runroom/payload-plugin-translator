@@ -27,8 +27,6 @@ const refuseLocalizedContainers = ({
   }
 }
 
-// Collections and globals both append the control to a `beforeDocumentControls` list; only
-// the slot that holds it differs.
 const withBeforeDocumentControls = <
   T extends { beforeDocumentControls?: PayloadComponent[] },
 >(
@@ -39,8 +37,8 @@ const withBeforeDocumentControls = <
     beforeDocumentControls: [...(slot?.beforeDocumentControls ?? []), CONTROL_COMPONENT],
   }) as T & { beforeDocumentControls: PayloadComponent[] }
 
-// A collection without drafts is translated too: the job writes directly and the drawer
-// warns that it goes live at once (see `server/entity.ts`).
+// Collections without drafts get the control too. The job writes them directly and the
+// drawer warns that the translation goes live at once.
 export const withControl = ({
   collection,
   blocks,
@@ -61,8 +59,8 @@ export const withControl = ({
   }
 }
 
-// Payload 3.90 renders a global's `beforeDocumentControls` from `admin.components.elements`,
-// not from `edit` as it does for collections.
+// Payload 3.90 renders a global's `beforeDocumentControls` from
+// `admin.components.elements`, not from `edit` as it does for collections.
 export const withGlobalControl = ({
   global,
   blocks,

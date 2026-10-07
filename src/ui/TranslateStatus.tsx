@@ -5,12 +5,13 @@ import type { ReactElement } from 'react'
 import { MessageList } from './MessageList.js'
 import type { Message } from './messages.js'
 
-// It lives in the bar and not in the drawer to announce the progress and the result even
-// while the drawer is closed. Always mounted and only its children change: screen readers do
-// not announce a live region that appears already filled.
+// This live region sits in the bar, not in the drawer, so progress and results are
+// announced even while the drawer is closed. It stays mounted and only its children change,
+// because screen readers do not announce a live region that appears already filled.
 //
-// With the drawer open, the drawer's summary announces (`silenced`): this one goes quiet
-// with `aria-live="off"` but keeps its content, so it is not announced again on close.
+// While the drawer is open its summary does the announcing (`silenced`). This region then
+// switches to `aria-live="off"` but keeps its content, so nothing is announced again when
+// the drawer closes.
 export const TranslateStatus = ({
   messages,
   silenced,

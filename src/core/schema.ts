@@ -45,7 +45,7 @@ const asRows = (value: unknown): Row[] =>
 const pathOf = (segments: PathSegment[]): string =>
   segments.map(({ key, rowId }) => (rowId ? `${key}.${rowId}` : key)).join('.')
 
-// Takes a tab too, which is not a `Field` but has its own `custom`.
+// Also accepts a tab, which is not a `Field` but has its own `custom`.
 const isExcluded = ({ custom }: { custom?: Record<string, unknown> }): boolean =>
   custom?.translator === 'exclude'
 
@@ -253,7 +253,8 @@ const visitLocalized = ({
 
 const walk = ({ fields, ...rest }: WalkArgs): void => {
   for (const field of fields) {
-    // Before `visitLayout`: an excluded `row`, `collapsible`, `tabs` or group hides its children.
+    // Checked before `visitLayout` so an excluded `row`, `collapsible`, `tabs` or group
+    // also excludes its children.
     if (isExcluded(field)) continue
     const args = { field, ...rest }
     if (!visitLayout(args) && !visitContainer(args)) visitLocalized(args)
@@ -278,8 +279,8 @@ export const collectTranslatables = ({
 
 const CONTAINER_TYPES = new Set(['array', 'blocks', 'group'])
 
-// A block can reference itself through `blockReferences`; each one is walked only once or
-// the search never ends.
+// A block can reference itself through `blockReferences`, so each block is walked only
+// once to keep the search from looping forever.
 const childFieldsOf = (
   field: Field,
   configBlocks: Block[],
@@ -309,8 +310,8 @@ const ownContainerName = (field: Field): string[] => {
     : []
 }
 
-// A localized container stores different rows per locale: no source row corresponds to a
-// target row, so fingerprinting by row `id` does not apply.
+// A localized container stores different rows per locale, so no source row corresponds to
+// a target row and fingerprinting by row `id` does not work.
 export const findLocalizedContainers = (
   fields: Field[],
   blocks: Block[] = [],

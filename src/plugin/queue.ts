@@ -8,9 +8,9 @@ const schedulesQueue = async (payload: Payload, queue: string): Promise<boolean>
   )
 }
 
-// A retryable error leaves the job waiting for its `waitUntil` and the record `queued`;
-// with nothing running the queue again, that retry never comes. It is only a warning:
-// in E2E runs or on serverless it may be deliberate.
+// A retryable error leaves the job waiting for its `waitUntil` and the record `queued`.
+// If nothing runs the queue again, the retry never happens. This is only a warning because
+// E2E runs or serverless setups may leave the queue unscheduled on purpose.
 export const warnIfQueueUnscheduled = async (
   payload: Payload,
   queue: string,

@@ -1,7 +1,6 @@
 import type { EntityQuery } from '../shared/api.js'
 
 // `null` while Payload does not know the entity yet (a new document).
-
 export const targetOf = ({
   id,
   collectionSlug,

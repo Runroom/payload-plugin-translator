@@ -11,9 +11,9 @@ export type TranslateOptionDefinition = {
   hintKey: TranslatorKey
 }
 
-// Each value travels in the `POST /translate` body with its `id` as the key: a new option
-// is a field in `TranslateOptions` (shared/api.ts), an entry here and reading it in
-// `parseBody` (server/endpoints.ts).
+// Each value is sent in the `POST /translate` body under its `id`. Adding an option takes a
+// field in `TranslateOptions` (shared/api.ts), an entry here, and reading it in `parseBody`
+// (server/endpoints.ts).
 export const TRANSLATE_OPTIONS: TranslateOptionDefinition[] = [
   {
     id: 'overwriteEdited',

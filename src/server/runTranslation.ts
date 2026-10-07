@@ -39,8 +39,8 @@ const saveFailure = async ({
   }
 }
 
-// With nothing translated, `translatedAt` stays the one of the last real translation:
-// moving it would make `onLiveWrite` notify the website again with nothing changed.
+// When nothing was translated, `translatedAt` keeps the date of the last real translation.
+// Updating it would make `onLiveWrite` notify the website again with nothing changed.
 const saveDone = async (
   { payload, sourceLocale }: LocaleRun,
   key: RecordKey,
@@ -59,8 +59,8 @@ const saveDone = async (
   })
 }
 
-// While a retry is left the record stays `queued`: that keeps the document locked, so a
-// new POST does not start another job that would run in parallel with this one.
+// While a retry is pending the record stays `queued`. That keeps the document locked, so a
+// new POST cannot start another job that would run in parallel with this one.
 const recordFailure = async (
   { payload }: LocaleRun,
   key: RecordKey,
@@ -124,7 +124,7 @@ const cancelAll = async ({
 }
 
 // A job retry goes through every locale again, but the finished ones come out unchanged
-// thanks to their fingerprints: retrying repeats neither provider calls nor writes.
+// thanks to their fingerprints, so no provider call or write is repeated.
 const throwFailures = (errors: unknown[]): void => {
   if (errors.length === 0) return
   const retryable = errors.find(error => !isUnrecoverable(error))
@@ -158,7 +158,6 @@ const prepare = async ({
     const message = `${name} is not translatable`
     return cancelAll({ payload, input, targets: requested, message })
   }
-  // An input without `sourceLocale` is translated from the default locale.
   const sourceLocale = input.sourceLocale ?? defaultLocaleOf(payload)
   const targets = targetLocalesOf({ locales: config.locales, sourceLocale, requested })
   const cancel = (reason: string): Promise<never> =>
@@ -184,8 +183,9 @@ const prepare = async ({
   }
 }
 
-// Locales run in sequence and inside a single job: each write saves the whole document from
-// the latest version, and two in parallel on the same document overwrite each other.
+// Locales run in sequence inside a single job because each write saves the whole document
+// from the latest version, so two parallel writes to the same document overwrite each
+// other.
 export const runTranslation = async ({
   payload,
   input,

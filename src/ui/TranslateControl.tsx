@@ -47,12 +47,13 @@ const localeLabel = ({
   return found.label[language] ?? Object.values(found.label)[0] ?? code
 }
 
-// Without drafts there is nothing left to review before publishing: it is already live.
+// Without drafts there is nothing to review before publishing; the translation is already
+// live.
 const doneKeyOf = (status: { writesLive: boolean }): TranslatorKey =>
   status.writesLive ? 'translator:doneLive' : 'translator:done'
 
-// The same rule Payload's bar uses to say "Draft" or "Changed" (`elements/Status`).
-// Publishing sets the counter to 0 in `useDocumentInfo` without reloading.
+// The rule Payload's bar uses to show "Draft" or "Changed" (`elements/Status`). Publishing
+// resets the counter in `useDocumentInfo` to 0 without a reload.
 const hasUnpublishedChanges = ({
   hasPublishedDoc,
   unpublishedVersionCount,
@@ -61,9 +62,9 @@ const hasUnpublishedChanges = ({
   unpublishedVersionCount: number
 }): boolean => !hasPublishedDoc || unpublishedVersionCount > 0
 
-// Payload's counter is for the whole document: with one locale already published and
-// another one in draft, it would be positive on the published one too. Only a translation
-// newer than the latest publication is still unpublished.
+// Payload's counter covers the whole document, so with one locale published and another in
+// draft it is positive on the published locale too. Only a translation newer than the
+// latest publication is still unpublished.
 const translatedAfterPublishing = ({
   translatedAt,
   lastPublishedAt,
@@ -112,6 +113,10 @@ const unpublishedDraftOf = ({
     lastPublishedAt: status.lastPublishedAt,
   })
 
+/**
+ * The admin component the plugin registers before the document controls of every
+ * configured collection and global. It is not meant to be imported directly.
+ */
 export const TranslateControl = (): ReactElement | null => {
   const { id, collectionSlug, globalSlug, hasPublishedDoc, unpublishedVersionCount } =
     useDocumentInfo()
@@ -121,7 +126,7 @@ export const TranslateControl = (): ReactElement | null => {
   const { openModal, isModalOpen } = useModal()
   const editDepth = useEditDepth()
   const drawerSlug = useDrawerSlug('translator')
-  // Payload types `t` with its own key union, which ours is a subset of.
+  // Payload types `t` with its own key union; ours is a subset of it.
   const translate = t as unknown as Translate
   const apiBase = `${config.serverURL ?? ''}${config.routes.api}`
   const target = targetOf({ id, collectionSlug, globalSlug })
@@ -141,9 +146,9 @@ export const TranslateControl = (): ReactElement | null => {
   })
 
   if (!status?.enabled) return null
-  // The open locale is the source; the others, the drawer's targets. Its own record (if
-  // someone translated it from another locale) feeds the bar's notice. A locale the entity
-  // does not translate cannot be the source: the server would answer 400.
+  // The open locale is the source and the others are the drawer's targets. Its own record
+  // (if it was translated from another locale) feeds the bar's notice. A locale the entity
+  // does not translate cannot be the source, since the server would answer 400.
   const current = status.locales.find(item => item.locale === locale.code)
   if (!current) return null
 
@@ -169,7 +174,8 @@ export const TranslateControl = (): ReactElement | null => {
     notice: request.notice,
     doneKey: batch.own ? doneKeyOf(status) : 'translator:finished',
   })
-  // With polling stopped, "Translating…" is no longer true: it announces the status is unknown.
+  // With polling stopped, "Translating…" may no longer be true, so announce that the status
+  // is unknown.
   const messages = stalled && !request.notice ? [STATUS_UNAVAILABLE] : summary
 
   return (

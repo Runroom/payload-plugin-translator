@@ -5,6 +5,12 @@ import type { TranslationRecord } from './records.js'
 import { markRevalidated } from './records.js'
 import type { TranslatorSettings } from './settings.js'
 
+/**
+ * Called once per finished translation of an entity without drafts, so you can revalidate
+ * the public site (for example with Next's `revalidatePath`). It runs from `GET /status`,
+ * which the admin polls until the job ends, so it does not fire until someone requests the
+ * status. `docId` is `null` for globals. Errors are logged and not retried.
+ */
 export type OnLiveWrite = (args: {
   req: PayloadRequest
   entityType: EntityRef['entityType']
@@ -19,11 +25,12 @@ const needsRevalidation = (record: TranslationRecord): boolean =>
   (!record.revalidatedAt ||
     Date.parse(record.translatedAt) > Date.parse(record.revalidatedAt))
 
-// The job writes after the POST has been answered, outside any Next request: there
-// `revalidatePath` is lost (the route handler already flushed its pending revalidations)
-// or throws (cron). `GET /status` is a real request, and the UI polls it when the job
-// finishes, so the website is notified from here, once per translation. The record is
-// marked even if the hook fails: retrying it on every poll would only fill the log.
+// The job writes after the POST has been answered, outside any Next request, where
+// `revalidatePath` is either lost (the route handler already flushed its pending
+// revalidations) or throws (cron). `GET /status` is a real request that the UI polls until
+// the job finishes, so the website is notified from here, once per translation. The record
+// is marked even if the hook fails, because retrying it on every poll would only fill the
+// log.
 export const notifyLiveWrites = async ({
   req,
   settings,
@@ -52,8 +59,9 @@ export const notifyLiveWrites = async ({
   } catch (err) {
     logger.warn({ err, msg: 'Translator onLiveWrite failed' })
   }
-  // Marked with the translation it notified, not with "now": one that finishes while the
-  // hook runs stays newer than its mark and is notified on the next poll.
+  // Mark with the `translatedAt` that was notified, not with the current time, so a
+  // translation that finishes while the hook runs stays newer than the mark and is
+  // notified on the next poll.
   for (const { record, translatedAt } of pending) {
     try {
       await markRevalidated(req.payload, {
