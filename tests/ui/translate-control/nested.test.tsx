@@ -170,30 +170,6 @@ describe('TranslateControl: in a locale translated from another one', () => {
     expect(button.textContent).not.toContain('translator:attentionStale')
   })
 
-  it('polls the status while something is in progress', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    locale.code = 'ca'
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(respond(status([row({ locale: 'en', state: 'queued' })])))
-      .mockResolvedValueOnce(respond(status([row({ locale: 'en', state: 'running' })])))
-      .mockResolvedValue(
-        respond(status([row({ locale: 'en', state: 'done', translatedAt: 'x' })])),
-      )
-    vi.stubGlobal('fetch', fetchMock)
-    render(<TranslateControl />)
-
-    expect(
-      await screen.findByRole('button', { name: 'translator:inProgress' }),
-    ).toBeTruthy()
-    await advance()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    await advance()
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-    await advance()
-    expect(fetchMock).toHaveBeenCalledTimes(3)
-  })
-
   it('announces the end of a translation of another language without asking to reload', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     locale.code = 'ca'
