@@ -23,8 +23,12 @@ import type { TranslatorSettings } from './settings.js'
 import type { TransactionID } from './transaction.js'
 import { inTransaction } from './transaction.js'
 
-/** The user who asked for the translation; the job acts on their behalf. */
-export type Requester = { collection: string; id: string }
+/**
+ * The user who asked for the translation; the job acts on their behalf. `strategy` is the
+ * auth strategy that authenticated them (`req.user._strategy`), so access rules that look
+ * at it (a second factor, an API key) decide in the job as they did in the request.
+ */
+export type Requester = { collection: string; id: string; strategy?: string }
 
 export type TranslationJobInput = EntityRef & {
   sourceLocale: string

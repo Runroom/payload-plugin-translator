@@ -11,6 +11,12 @@ import { translatorPlugin } from '../src/index.js'
 
 type Role = { slug?: string } | number | string
 
+// A user who needs a second factor passed it when a `totp` strategy authenticated them;
+// Payload stamps the strategy on `req.user` as `_strategy`.
+const passedSecondFactor = (user: TypedUser | null): boolean =>
+  user?.needsSecondFactor !== true ||
+  (user as { _strategy?: unknown })._strategy === 'totp'
+
 // Only populated roles can say what they are: at depth 0 (ids only) no role is found.
 const hasRole = (user: TypedUser | null, slug: string): boolean =>
   (user?.roles as Role[] | null | undefined)?.some(
@@ -54,6 +60,8 @@ export default buildConfig({
       fields: [
         // Flags the `guarded` access rules look at; both can change after a job is queued.
         { name: 'canTranslate', type: 'checkbox', defaultValue: true },
+        // Writes to `guarded` only after a second factor, told by the auth strategy.
+        { name: 'needsSecondFactor', type: 'checkbox', defaultValue: false },
         {
           name: 'role',
           type: 'select',
@@ -94,7 +102,8 @@ export default buildConfig({
         update: ({ req }): boolean =>
           req.locale !== 'fr' &&
           req.user?.canTranslate === true &&
-          !hasRole(req.user, 'viewer'),
+          !hasRole(req.user, 'viewer') &&
+          passedSecondFactor(req.user),
       },
       fields: [
         { name: 'title', type: 'text', localized: true },

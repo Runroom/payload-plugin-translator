@@ -178,19 +178,21 @@ document and keeps its errors, so reading it goes through `GET /status`, which c
 the plugin's `access` and the document's own. Only the plugin, through the Local API,
 reads and writes it.
 
-The job **runs as the requester**: it stores who asked, loads that user again on every
-attempt and reads the source and writes the target through the Local API with
-`overrideAccess: false` and that user. The target is compared as Payload stored it, so a
-field the requester may update but not read there still counts as translated; what is read
-that way only feeds the comparisons and is never sent to the provider or returned to the
-requester. The checks above are repeated when the job runs, per locale (read on the source
-locale, update on each target locale), so access rules that depend on `req.locale`, on the
-user or on the document are honoured as they stand at that moment, not as they stood when
-the job was queued. A user who loses access, or is deleted, before the job runs gets the
-locale marked `failed` with "Access denied" (or "The user who requested the translation no
-longer exists") and nothing is sent to the provider. Field access is applied by Payload on
-the real data: a field the requester may not read in the source locale is never sent to
-the provider, and a field they may not update in the target locale (a row-level rule on
+The job **runs as the requester**: it stores who asked and the auth strategy that
+authenticated them (`req.user._strategy`, so rules that require a second factor or reject
+API keys decide as in the request), loads that user again on every attempt and reads the
+source and writes the target through the Local API with `overrideAccess: false` and that
+user. The target is compared as Payload stored it, so a field the requester may update but
+not read there still counts as translated; what is read that way only feeds the
+comparisons and is never sent to the provider or returned to the requester. The checks
+above are repeated when the job runs, per locale (read on the source locale, update on
+each target locale), so access rules that depend on `req.locale`, on the user or on the
+document are honoured as they stand at that moment, not as they stood when the job was
+queued. A user who loses access, or is deleted, before the job runs gets the locale marked
+`failed` with "Access denied" (or "The user who requested the translation no longer
+exists") and nothing is sent to the provider. Field access is applied by Payload on the
+real data: a field the requester may not read in the source locale is never sent to the
+provider, and a field they may not update in the target locale (a row-level rule on
 `siblingData` or `blockData`, for instance) keeps its value and is listed as kept, without
 failing the run; its fingerprints stay as they were, so if it still holds the translator's
 earlier output, the status reports it as stale and the next run tries again. Fields

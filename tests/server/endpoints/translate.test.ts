@@ -83,16 +83,16 @@ describe('POST /translator/translate', () => {
     ])
   })
 
-  it('queues the requester’s identity, not their permissions, for the job', async () => {
+  it('queues the requester’s identity and auth strategy, not their permissions, for the job', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
-      user: { id: 'u7', collection: 'editors' },
+      user: { id: 'u7', collection: 'editors', _strategy: 'totp' },
     })
 
     await endpoint(settings(), '/translator/translate')(req)
 
     const { input } = queue.mock.calls[0]![0]
-    expect(input.requester).toEqual({ id: 'u7', collection: 'editors' })
+    expect(input.requester).toEqual({ id: 'u7', collection: 'editors', strategy: 'totp' })
     expect(input).not.toHaveProperty('fieldPermissions')
   })
 

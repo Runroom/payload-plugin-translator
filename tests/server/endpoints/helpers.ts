@@ -55,7 +55,7 @@ export const request = ({
   ],
 }: {
   body?: unknown
-  user?: { id: string; collection: string } | null
+  user?: { id: string; collection: string; _strategy?: string } | null
   records?: Record<string, unknown>[]
   query?: string
   doc?: Record<string, unknown> | null
