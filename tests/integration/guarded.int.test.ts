@@ -486,6 +486,36 @@ describe('translating as the requester under access rules', () => {
     expect((await readDraft(id, 'es')).title).toBe('[es] Second factor')
   })
 
+  // `syncedLabel` is closed to people and open to the translator's `context`, which the
+  // access checks, the reads and the write all carry.
+  it('fills a field closed to people but open to the translator, and reports it', async () => {
+    const id = await createDoc({ title: 'Synced', syncedLabel: 'General' })
+    const body = { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] }
+
+    await translateAndWait(harness, body)
+
+    expect(await readDraft(id, 'es')).toMatchObject({
+      title: '[es] Synced',
+      syncedLabel: '[es] General',
+    })
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      status: 'done',
+      kept: [],
+    })
+
+    // The status counts it too: a new source text shows as changed.
+    await harness.payload.update({
+      collection: 'guarded' as never,
+      id,
+      locale: 'en',
+      draft: true,
+      data: { syncedLabel: 'Students' },
+    } as never)
+    expect(
+      localeStatus(await status(harness, { collection: 'guarded', id }), 'es'),
+    ).toMatchObject({ state: 'done', changed: 1, missing: 0 })
+  })
+
   it('fails when the requester was deleted before the job runs', async () => {
     const id = await createDoc({ title: 'Orphan' })
     const user = await createUser({ email: 'gone@example.com' })

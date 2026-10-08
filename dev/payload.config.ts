@@ -7,7 +7,7 @@ import type { TypedUser } from 'payload'
 import { buildConfig } from 'payload'
 
 import { fakeProvider } from '../src/exports/testing.js'
-import { translatorPlugin } from '../src/index.js'
+import { isTranslatorWrite, translatorPlugin } from '../src/index.js'
 
 type Role = { slug?: string } | number | string
 
@@ -112,6 +112,17 @@ export default buildConfig({
           type: 'text',
           localized: true,
           access: { read: ({ req }): boolean => req.user?.role === 'admin' },
+        },
+        // Closed to people, as a field another system owns, but open to the translator: its
+        // access checks, reads and writes all carry the translator's `context`.
+        {
+          name: 'syncedLabel',
+          type: 'text',
+          localized: true,
+          access: {
+            read: ({ req }): boolean => isTranslatorWrite(req.context),
+            update: ({ req }): boolean => isTranslatorWrite(req.context),
+          },
         },
         // Hidden in `es` yet writable there: it is translated into `es` from a locale where
         // it can be read.

@@ -7,6 +7,7 @@ import type {
 } from 'payload'
 import { createLocalReq, docAccessOperation, docAccessOperationGlobal } from 'payload'
 
+import { TRANSLATOR_WRITE_CONTEXT } from '../context.js'
 import { mergeFieldPermissions } from '../core/permissions.js'
 import type { EntityRef } from './entity.js'
 import { AccessDeniedError } from './errors.js'
@@ -20,21 +21,29 @@ export type DocPermissions = {
 const NONE: DocPermissions = { read: false, update: false, fields: {} }
 
 // Access rules may depend on `req.locale`, and `docAccessOperation` reads the document in
-// that locale before handing it to them. The request is restored afterwards: a real
-// request cannot be cloned, since `headers` and friends live on the `Request` prototype.
-// That read goes through `createLocalReq`, which also rewrites `req.fallbackLocale`.
-const withLocale = async <T>(
+// that locale before handing it to them. They also see the translator's `context`, as the
+// job's reads and writes do, so a rule that lets the translator fill a field people may
+// not edit decides the same here. The request is restored afterwards: a real request
+// cannot be cloned, since `headers` and friends live on the `Request` prototype. That read
+// goes through `createLocalReq`, which also rewrites `req.fallbackLocale`.
+const asTranslator = async <T>(
   req: PayloadRequest,
   locale: string,
   work: () => Promise<T>,
 ): Promise<T> => {
-  const previous = { locale: req.locale, fallbackLocale: req.fallbackLocale }
+  const previous = {
+    locale: req.locale,
+    fallbackLocale: req.fallbackLocale,
+    context: req.context,
+  }
   req.locale = locale
+  req.context = { ...req.context, ...TRANSLATOR_WRITE_CONTEXT }
   try {
     return await work()
   } finally {
     req.locale = previous.locale
     req.fallbackLocale = previous.fallbackLocale
+    req.context = previous.context
   }
 }
 
@@ -73,7 +82,7 @@ export const docPermissions = ({
   req: PayloadRequest
   ref: EntityRef
   locale: string
-}): Promise<DocPermissions> => withLocale(req, locale, () => resolve(req, ref))
+}): Promise<DocPermissions> => asTranslator(req, locale, () => resolve(req, ref))
 
 const permissionsAs = async ({
   payload,
