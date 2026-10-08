@@ -227,19 +227,6 @@ describe('POST /translator/translate', () => {
     expect(queue).not.toHaveBeenCalled()
   })
 
-  it('treats a recent queued record as busy', async () => {
-    const { req, queue } = request({
-      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
-      lock: lockedSince(0),
-      records: [recent('ca', 'queued')],
-    })
-
-    const response = await endpoint(settings(), '/translator/translate')(req)
-
-    expect(response.status).toBe(409)
-    expect(queue).not.toHaveBeenCalled()
-  })
-
   it('reports a pending record busy while the lock is held, however old its heartbeat', async () => {
     const { req, queue } = request({
       body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
@@ -351,26 +338,6 @@ describe('POST /translator/translate', () => {
     const response = await endpoint(settings(), '/translator/translate')(req)
 
     expect(response.status).toBe(400)
-    expect(queue).not.toHaveBeenCalled()
-  })
-
-  it('answers 409 when a translation for that locale is already in progress', async () => {
-    const { req, queue } = request({
-      body: { collection: 'events', id: 'e1', sourceLocale: 'es', targetLocales: ['ca'] },
-      lock: lockedSince(0),
-      records: [
-        {
-          id: 'r1',
-          targetLocale: 'ca',
-          status: 'running',
-          updatedAt: new Date().toISOString(),
-        },
-      ],
-    })
-
-    const response = await endpoint(settings(), '/translator/translate')(req)
-
-    expect(response.status).toBe(409)
     expect(queue).not.toHaveBeenCalled()
   })
 

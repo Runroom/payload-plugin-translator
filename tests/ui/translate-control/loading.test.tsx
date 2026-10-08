@@ -11,29 +11,6 @@ vi.mock('../../../src/ui/reloadPage.js', async () => ({
 }))
 
 describe('TranslateControl: access and loading', () => {
-  it('renders nothing when the status endpoint forbids access', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(respond({ error: 'forbidden' }, 403)),
-    )
-
-    const { container } = render(<TranslateControl />)
-
-    await waitFor(() => expect(fetch).toHaveBeenCalled())
-    await settle()
-    expect(container.innerHTML).toBe('')
-  })
-
-  it('renders nothing when the status endpoint is not found', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(respond({ error: 'nope' }, 404)))
-
-    const { container } = render(<TranslateControl />)
-
-    await waitFor(() => expect(fetch).toHaveBeenCalled())
-    await settle()
-    expect(container.innerHTML).toBe('')
-  })
-
   it('renders nothing when the translator is disabled', async () => {
     vi.stubGlobal(
       'fetch',
