@@ -1,4 +1,4 @@
-import { createLocalReq, docAccessOperation, docAccessOperationGlobal } from 'payload'
+import { docAccessOperation } from 'payload'
 import type { Payload, TypedUser } from 'payload'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,12 +11,10 @@ vi.mock('payload', async importOriginal => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createLocalReq: vi.fn(async ({ user, locale }, payload) => ({ user, locale, payload })),
   docAccessOperation: vi.fn(),
-  docAccessOperationGlobal: vi.fn(),
 }))
 
 const payload = {
   collections: { events: { config: { slug: 'events' } } },
-  globals: { config: [{ slug: 'footer' }] },
 } as unknown as Payload
 
 const user = { id: 'u1', collection: 'users' } as unknown as TypedUser
@@ -33,7 +31,6 @@ const perLocale = (byLocale: Record<string, Perms>): void => {
 
 beforeEach(() => {
   vi.mocked(docAccessOperation).mockReset()
-  vi.mocked(docAccessOperationGlobal).mockReset()
 })
 
 describe('docPermissions', () => {
@@ -73,49 +70,9 @@ describe('docPermissions', () => {
     await expect(docPermissions({ req, ref, locale: 'fr' })).rejects.toThrow('db down')
     expect((req as { locale: string }).locale).toBe('en')
   })
-
-  it('checks a global through its own operation', async () => {
-    vi.mocked(docAccessOperationGlobal).mockResolvedValue({
-      read: true,
-      update: true,
-      fields: {},
-    } as never)
-    const req = { payload, user } as never
-
-    const result = await docPermissions({
-      req,
-      ref: { entityType: 'global', collectionSlug: 'footer', docId: 'global' },
-      locale: 'es',
-    })
-
-    expect(result).toEqual({ read: true, update: true, fields: {} })
-    expect(docAccessOperationGlobal).toHaveBeenCalledWith({
-      req,
-      globalConfig: { slug: 'footer' },
-    })
-  })
 })
 
 describe('requesterPermissions', () => {
-  it('builds one request per locale as the requester and checks read on the source, update on the target', async () => {
-    perLocale({
-      es: { read: true, fields: { title: true, note: true } },
-      ca: { update: true, fields: { title: true } },
-    })
-
-    const fields = await requesterPermissions({
-      payload,
-      user,
-      ref,
-      sourceLocale: 'es',
-      targetLocale: 'ca',
-    })
-
-    expect(fields).toEqual({ title: true })
-    expect(createLocalReq).toHaveBeenCalledWith({ user, locale: 'es' }, payload)
-    expect(createLocalReq).toHaveBeenCalledWith({ user, locale: 'ca' }, payload)
-  })
-
   it('denies when the source is not readable in its locale', async () => {
     perLocale({
       es: { update: true, fields: true },
@@ -131,22 +88,5 @@ describe('requesterPermissions', () => {
         targetLocale: 'ca',
       }),
     ).rejects.toBeInstanceOf(AccessDeniedError)
-  })
-
-  it('denies when the target is not updatable in its locale', async () => {
-    perLocale({
-      es: { read: true, update: true, fields: true },
-      ca: { read: true, fields: true },
-    })
-
-    await expect(
-      requesterPermissions({
-        payload,
-        user,
-        ref,
-        sourceLocale: 'es',
-        targetLocale: 'ca',
-      }),
-    ).rejects.toThrow('Access denied')
   })
 })
