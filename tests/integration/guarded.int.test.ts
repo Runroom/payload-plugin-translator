@@ -464,6 +464,28 @@ describe('translating as the requester under access rules', () => {
     expect((await readDraft(id, 'es')).title).toBe('[es] Writer')
   })
 
+  // The `guarded` update rule asks this user for a second factor, which only the auth
+  // strategy tells; reloaded as `local-jwt` the job would be denied.
+  it('translates as the auth strategy that authenticated the requester', async () => {
+    const id = await createDoc({ title: 'Second factor' })
+    const user = await createUser({
+      email: 'second-factor@example.com',
+      needsSecondFactor: true,
+    })
+    await queueOnly(
+      { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] },
+      { ...user, _strategy: 'totp' } as TypedUser,
+    )
+
+    await runQueueOnce()
+
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      status: 'done',
+      error: null,
+    })
+    expect((await readDraft(id, 'es')).title).toBe('[es] Second factor')
+  })
+
   it('fails when the requester was deleted before the job runs', async () => {
     const id = await createDoc({ title: 'Orphan' })
     const user = await createUser({ email: 'gone@example.com' })

@@ -4,10 +4,14 @@ import type { Requester } from './localeRun.js'
 
 /** The requester as the job input carries it; `null` when the input is malformed. */
 export const requesterOf = (raw: unknown): Requester | null => {
-  const value = raw as { collection?: unknown; id?: unknown } | null
+  const value = raw as { collection?: unknown; id?: unknown; strategy?: unknown } | null
   if (!value || typeof value.collection !== 'string') return null
   if (typeof value.id !== 'string' && typeof value.id !== 'number') return null
-  return { collection: value.collection, id: String(value.id) }
+  return {
+    collection: value.collection,
+    id: String(value.id),
+    ...(typeof value.strategy === 'string' ? { strategy: value.strategy } : {}),
+  }
 }
 
 // Payload binds `req.user` with the auth collection's `auth.depth` (unset, it falls back
@@ -23,7 +27,8 @@ const authDepthOf = (payload: Payload, collection: string): number | undefined =
 // The job runs outside the request that queued it, so the requester is loaded again on
 // every attempt; a user deleted in the meantime can no longer translate anything. The user
 // is shaped as the admin's request had it, so access rules that look at populated
-// relations (a role's slug) decide the same way in the job.
+// relations (a role's slug) or at the auth strategy decide the same way in the job. A job
+// queued before the strategy was recorded falls back to Payload's own `local-jwt`.
 export const loadRequester = async (
   payload: Payload,
   requester: Requester | null,
@@ -40,6 +45,6 @@ export const loadRequester = async (
   return {
     ...user,
     collection: requester.collection,
-    _strategy: 'local-jwt',
+    _strategy: requester.strategy ?? 'local-jwt',
   } as unknown as TypedUser
 }

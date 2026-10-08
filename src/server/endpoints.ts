@@ -248,8 +248,16 @@ const checkDocument = async ({
 
 // The job acts as the requester, so a request without a user has nobody to act as. The
 // plugin's `access` normally denies it already.
-const requesterOf = (req: PayloadRequest): Requester | null =>
-  req.user ? { collection: req.user.collection, id: String(req.user.id) } : null
+const requesterOf = (req: PayloadRequest): Requester | null => {
+  if (!req.user) return null
+  // Payload stamps `_strategy` on `req.user` at runtime but leaves it out of `TypedUser`.
+  const strategy = (req.user as { _strategy?: unknown })._strategy
+  return {
+    collection: req.user.collection,
+    id: String(req.user.id),
+    ...(typeof strategy === 'string' ? { strategy } : {}),
+  }
+}
 
 const translateEndpoint = (settings: TranslatorSettings): Endpoint => ({
   path: TRANSLATE_PATH,
