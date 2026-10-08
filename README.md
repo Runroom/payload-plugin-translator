@@ -200,11 +200,27 @@ missing either permission at the schema level are not counted in status either, 
 previous fingerprints are kept. `GET /status` reads each source locale as the requester,
 compares each target as stored, and checks read access per locale: a locale they cannot
 read is reported without comparison data (`stale: false`, `changed: 0`, `missing: 0`), and
-the document only answers 404 when none of its locales is readable. Every write it makes
-to your documents carries its own request `context` (`TRANSLATOR_WRITE_CONTEXT`); use
-`isTranslatorWrite(context)` in your hooks to tell its writes apart, for example to skip
-revalidating the public site on a draft write, or to keep a sync from claiming a field the
-translator wrote.
+the document only answers 404 when none of its locales is readable. Everything the
+translator does to your documents as the requester (the access checks of `/translate`,
+`/status` and the job, its reads and its writes) carries its own request `context`
+(`TRANSLATOR_WRITE_CONTEXT`). Use `isTranslatorWrite(context)` in your hooks to tell its
+writes apart, for example to skip revalidating the public site on a draft write, or to
+keep a sync from claiming a field the translator wrote. In a field's `access`, it lets the
+translator fill a localized field people may not edit, such as one another system owns:
+
+```ts
+{
+  name: 'label',
+  type: 'text',
+  localized: true,
+  required: true,
+  // Locked in the admin and the REST API; the translator may still fill other locales.
+  access: { update: ({ req }) => isTranslatorWrite(req.context) },
+}
+```
+
+`req.context` cannot be set from an HTTP request, so only the Local API (the translator,
+or your own code passing that `context`) gets through.
 
 ## Endpoints
 

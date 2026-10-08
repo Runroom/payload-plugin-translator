@@ -108,6 +108,8 @@ const readOptions = (
   ...fallbackOption(withFallback),
   ...accessOption(asStored ? undefined : user),
   ...transactionOption(transactionID),
+  // As on the writes, so read access rules can tell the translator apart.
+  context: { ...TRANSLATOR_WRITE_CONTEXT },
 })
 
 const collectionEntity = (
