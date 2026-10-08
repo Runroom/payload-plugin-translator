@@ -1,6 +1,6 @@
 {
   "name": "@runroom/payload-plugin-translator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Payload CMS plugin that translates localized fields of collections and globals with AI, as drafts when the entity has them, without overwriting hand-edited text.",
   "license": "MIT",
   "repository": {

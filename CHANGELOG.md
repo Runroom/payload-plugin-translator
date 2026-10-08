@@ -1,5 +1,12 @@
 # @runroom/payload-plugin-translator
 
+## 0.1.1
+
+### Patch Changes
+
+- Published with an npm provenance statement, which links each version to the commit and
+  the workflow that built it. 0.1.0 was published without one.
+
 ## 0.1.0
 
 First release.

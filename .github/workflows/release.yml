@@ -19,11 +19,9 @@ jobs:
       # Push the tag and the GitHub release. No `pull-requests`: the organization does not let
       # GitHub Actions open pull requests, so the version bump is a pull request a person opens.
       contents: write
-      # npm provenance: lets npm verify the package was built by this workflow.
+      # npm trusted publishing: the publish authenticates with this workflow's OIDC token,
+      # which also signs the provenance statement. There is no npm token.
       id-token: write
-    env:
-      # Secrets cannot appear in `if:` directly; this flag can.
-      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -31,7 +29,8 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+          # No `registry-url`: its `.npmrc` sets a placeholder token, and pnpm only falls back
+          # to OIDC when no token is configured.
       - run: pnpm install --frozen-lockfile
 
       - uses: changesets/action/select-mode@v2
@@ -43,18 +42,10 @@ jobs:
           echo "::notice::Pending changesets; run 'pnpm changeset version' in a pull
           request to release them."
 
-      # Without an NPM_TOKEN secret the publish step is skipped, so merging to main cannot
-      # fail on a missing token or publish by accident before the npm side is set up.
-      - if: steps.mode.outputs.mode == 'publish' && env.HAS_NPM_TOKEN == 'true'
+      # Publishes only the versions npm does not have yet, so a push without a version bump
+      # publishes nothing. npm accepts it from this repository and workflow (`release.yml`),
+      # as set up in the package's trusted publisher.
+      - if: steps.mode.outputs.mode == 'publish'
         uses: changesets/action/publish@v2
         with:
           script: pnpm release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          # setup-node writes the token's `.npmrc` and points `NPM_CONFIG_USERCONFIG` at it,
-          # but pnpm 11.0 only reads `PNPM_CONFIG_*`: without this it publishes with no token
-          # and npm answers 404.
-          PNPM_CONFIG_USERCONFIG: ${{ env.NPM_CONFIG_USERCONFIG }}
-
-      - if: steps.mode.outputs.mode == 'publish' && env.HAS_NPM_TOKEN != 'true'
-        run: echo "::notice::NPM_TOKEN is not set; skipping the npm publish."
