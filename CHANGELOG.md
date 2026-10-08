@@ -19,11 +19,14 @@ First release.
   the plugin's `access`, the document's own read and update access, and field-level read
   and update access for translated fields.
 - The `translation-records` and `translation-locks` collections and the
-  `translateDocument` job task, with retries and an atomic per-document lock.
+  `translateDocument` job task, with retries and an atomic per-document lock. The job acts
+  as the requester, with the auth strategy that authenticated them, so access rules that
+  check it (a second factor, an API key) decide as they did in the request.
 - `onLiveWrite`, to revalidate the public site after a translation of an entity without
   drafts.
-- `isTranslatorWrite` and `TRANSLATOR_WRITE_CONTEXT`, to recognise the translator's writes
-  in hooks.
+- `isTranslatorWrite` and `TRANSLATOR_WRITE_CONTEXT`, to recognise the translator in hooks
+  and in a field's `access`: its access checks, reads and writes all carry that context,
+  so a field people may not edit can stay open to the translator.
 - Providers: `openAIProvider` (`/openai` entry, optional `openai` peer) and `fakeProvider`
   (`/testing` entry, for tests and E2E runs).
 
