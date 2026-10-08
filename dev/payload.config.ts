@@ -104,6 +104,14 @@ export default buildConfig({
           localized: true,
           access: { read: ({ req }): boolean => req.user?.role === 'admin' },
         },
+        // Hidden in `es` yet writable there: it is translated into `es` from a locale where
+        // it can be read.
+        {
+          name: 'summary',
+          type: 'text',
+          localized: true,
+          access: { read: ({ req }): boolean => req.locale !== 'es' },
+        },
         {
           name: 'items',
           type: 'array',
@@ -128,7 +136,26 @@ export default buildConfig({
     {
       slug: 'footer',
       versions: { drafts: true },
-      fields: [{ name: 'text', type: 'text', localized: true }],
+      fields: [
+        { name: 'text', type: 'text', localized: true },
+        {
+          name: 'links',
+          type: 'array',
+          fields: [
+            {
+              name: 'label',
+              type: 'text',
+              localized: true,
+              // Row-level, like `guarded.items.text`: Payload applies it when it reads the
+              // global as the requester, not when it computes the schema-level permissions.
+              access: {
+                read: ({ siblingData }): boolean => siblingData?.internal !== true,
+              },
+            },
+            { name: 'internal', type: 'checkbox', defaultValue: false },
+          ],
+        },
+      ],
     },
   ],
   // No `jobs.autoRun`: the integration tests run the queue themselves.
