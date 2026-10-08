@@ -310,6 +310,44 @@ describe('translating as the requester under access rules', () => {
     expect(es.secretNote).toBeFalsy()
   })
 
+  // `summary` cannot be read in `es`, the target, but it can be read in `en` and updated
+  // in `es`: that is all a translation needs.
+  it('translates a field readable in the source locale and updatable in the target, though hidden there', async () => {
+    const id = await createDoc({ title: 'Brief', summary: 'In short' })
+
+    await translateAndWait(harness, {
+      collection: 'guarded',
+      id,
+      sourceLocale: 'en',
+      targetLocales: ['es'],
+    })
+
+    expect(sentTexts()).toEqual(['Brief', 'In short'])
+    expect((await readDraft(id, 'es')).summary).toBe('[es] In short')
+  })
+
+  // The schema-level permissions allow `links.label`; only the read as the requester hides
+  // the label of an internal row.
+  it('never sends the text of a global row the requester may not read', async () => {
+    await harness.payload.updateGlobal({
+      slug: 'footer',
+      locale: 'en',
+      data: {
+        text: 'Footer',
+        links: [{ label: 'Contact' }, { label: 'Staff only', internal: true }],
+        _status: 'published',
+      } as never,
+    })
+
+    await translateAndWait(harness, {
+      global: 'footer',
+      sourceLocale: 'en',
+      targetLocales: ['es'],
+    })
+
+    expect(sentTexts()).toEqual(['Footer', 'Contact'])
+  })
+
   it('fails with "Access denied" when the requester loses access before the job runs', async () => {
     const id = await createDoc({ title: 'Revoked' })
     const user = await createUser({ email: 'revoked@example.com', canTranslate: true })
