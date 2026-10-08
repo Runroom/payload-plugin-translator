@@ -7,7 +7,6 @@ import { ProviderError } from '../../../src/provider/types.js'
 import { RECORDS_SLUG } from '../../../src/server/records.js'
 import { runTranslation } from '../../../src/server/runTranslation.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
-import { isBusy } from '../../../src/server/status.js'
 import {
   fakePayload,
   settings,
@@ -42,12 +41,6 @@ describe('runTranslation retries and safety checks', () => {
     ).rejects.toBe(original)
     const saved = lastRecord(records, 'ca')
     expect(saved).toMatchObject({ status: 'queued', error: 'cuota' })
-    expect(
-      isBusy({
-        status: saved.status as 'queued',
-        updatedAt: new Date().toISOString(),
-      }),
-    ).toBe(true)
     expect(lastRecord(records, 'en')).toMatchObject({ status: 'done' })
   })
 

@@ -23,7 +23,7 @@ type Translatables = TranslatableValue[]
 
 // A record whose process died stays `running` forever, so it stops blocking a new
 // translation once the busy window has passed.
-export const isBusy = (
+const isBusy = (
   record: Pick<TranslationRecord, 'status' | 'updatedAt'> | undefined,
 ): boolean =>
   record !== undefined &&
@@ -59,7 +59,7 @@ const staleness = ({
   return { stale: changed > 0 || missing > 0, changed, missing }
 }
 
-export const INTERRUPTED_ERROR =
+const INTERRUPTED_ERROR =
   'The translation was interrupted before it finished; you can start it again'
 
 // A `queued`/`running` record is still pending while the document's lock has a heartbeat:
