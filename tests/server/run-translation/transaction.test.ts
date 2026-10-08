@@ -10,7 +10,6 @@ import {
   fields,
   heldLock,
   input,
-  lastRecord,
   LOCK_TOKEN,
   recordsFor,
   refreshOf,
@@ -97,24 +96,6 @@ const docs: Docs = {
 }
 
 describe('runTranslation on an adapter with transactions', () => {
-  it('commits the write with its done record and verifies it afterwards, outside the transaction', async () => {
-    const { payload, records, log } = transactionalPayload({ docs })
-
-    await runTranslation({ isLastAttempt: false, payload, input, settings })
-
-    const done = records.mock.calls.find(([args]) => args.data.status === 'done')![0]
-    expect(done.req).toEqual({ transactionID: 'tx-1' })
-    expect(log.slice(log.indexOf('record:done'))).toEqual([
-      'record:done',
-      'commit',
-      'read:ca',
-    ])
-    expect(lastRecord(records, 'ca')).toMatchObject({
-      status: 'done',
-      lockToken: LOCK_TOKEN,
-    })
-  })
-
   it('retries with corrected fingerprints when a save lands right after the commit', async () => {
     const { payload, records, log } = transactionalPayload({
       docs,

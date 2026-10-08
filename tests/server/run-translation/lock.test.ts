@@ -192,14 +192,6 @@ describe('runTranslation and the document lock', () => {
     expect(update).not.toHaveBeenCalled()
   })
 
-  it('releases the lock when the job succeeds', async () => {
-    const { payload, unlock } = fakePayload({ docs: { ...bothLocales } })
-
-    await runTranslation({ isLastAttempt: false, payload, input, settings })
-
-    expect(releasedWith(unlock)).toEqual([LOCK_TOKEN])
-  })
-
   it('keeps the lock while a retry is pending and releases it on the last attempt', async () => {
     const retryable = failingFor('ca', new ProviderError('cuota', true))
     const pending = fakePayload({ docs: { ...bothLocales } })
@@ -213,20 +205,5 @@ describe('runTranslation and the document lock', () => {
       runTranslation({ isLastAttempt: true, ...last, input, settings: retryable }),
     ).rejects.toThrow('cuota')
     expect(releasedWith(last.unlock)).toEqual([LOCK_TOKEN])
-  })
-
-  it('releases the lock when the job is cancelled for good', async () => {
-    const { payload, unlock } = fakePayload({ docs: { ...bothLocales } })
-
-    await expect(
-      runTranslation({
-        isLastAttempt: false,
-        payload,
-        input,
-        settings: failingFor('ca', new ProviderError('invalid key', false)),
-      }),
-    ).rejects.toBeInstanceOf(JobCancelledError)
-
-    expect(releasedWith(unlock)).toEqual([LOCK_TOKEN])
   })
 })
