@@ -51,6 +51,10 @@ jobs:
           script: pnpm release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # setup-node writes the token's `.npmrc` and points `NPM_CONFIG_USERCONFIG` at it,
+          # but pnpm 11.0 only reads `PNPM_CONFIG_*`: without this it publishes with no token
+          # and npm answers 404.
+          PNPM_CONFIG_USERCONFIG: ${{ env.NPM_CONFIG_USERCONFIG }}
 
       - if: steps.mode.outputs.mode == 'publish' && env.HAS_NPM_TOKEN != 'true'
         run: echo "::notice::NPM_TOKEN is not set; skipping the npm publish."
