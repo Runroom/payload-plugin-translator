@@ -102,6 +102,12 @@ After adding the plugin:
    document never run at once because of the lock, not because of Payload's
    `concurrencyKey`.
 
+   Without the migration on a SQL adapter, the admin keeps sending you back to the login
+   screen after a correct password: Payload's locked-documents query references the new
+   `translation_locks_id` column and fails
+   (`column payload_locked_documents__rels.translation_locks_id does not exist` on
+   Postgres).
+
 3. Make sure the jobs run (see [Requirements](#requirements)).
 
 ## Options
