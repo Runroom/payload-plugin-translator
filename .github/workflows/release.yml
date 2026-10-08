@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
 
-# One release run at a time: a second push waits instead of racing the version PR or a publish.
+# One release run at a time: a second push waits instead of racing a publish.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -16,9 +16,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      # Version PR: push its branch and open it. Publish: push the tag and the GitHub release.
+      # Push the tag and the GitHub release. No `pull-requests`: the organization does not let
+      # GitHub Actions open pull requests, so the version bump is a pull request a person opens.
       contents: write
-      pull-requests: write
       # npm provenance: lets npm verify the package was built by this workflow.
       id-token: write
     env:
@@ -37,11 +37,11 @@ jobs:
       - uses: changesets/action/select-mode@v2
         id: mode
 
+      # Pending changesets mean the version has not been bumped yet: nothing to publish.
       - if: steps.mode.outputs.mode == 'version'
-        uses: changesets/action/version@v2
-        with:
-          pr-title: Version Packages
-          commit-message: Version Packages
+        run:
+          echo "::notice::Pending changesets; run 'pnpm changeset version' in a pull
+          request to release them."
 
       # Without an NPM_TOKEN secret the publish step is skipped, so merging to main cannot
       # fail on a missing token or publish by accident before the npm side is set up.

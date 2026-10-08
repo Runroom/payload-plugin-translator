@@ -11,6 +11,12 @@ Pick the bump (`patch`, `minor` or `major`) and write one or two sentences for t
 changelog. Commit the generated `.changeset/*.md` file with the rest of the change.
 Refactors, tests and CI changes do not need one.
 
-On every push to `main`, the release workflow either opens a "Version Packages" pull
-request with the pending changesets applied to `package.json` and `CHANGELOG.md`, or, once
-that pull request is merged, publishes the new version to npm.
+To release, open a pull request that runs:
+
+```bash
+pnpm changeset version
+```
+
+It applies the pending changesets to `package.json` and `CHANGELOG.md` and deletes them.
+Once that pull request is merged, the release workflow publishes the new version to npm.
+While changesets are pending on `main`, it publishes nothing.
