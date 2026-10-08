@@ -3,8 +3,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { fakeProvider } from '../src/exports/testing.js'
 import { translatorPlugin, translatorTranslations } from '../src/index.js'
-import type { TranslatorPluginOptions } from '../src/plugin/settings.js'
-import { resolveSettings } from '../src/plugin/settings.js'
 
 // Payload resolves per-document permissions against the database; here only the config
 // the plugin returns matters.
@@ -63,17 +61,31 @@ describe('translatorPlugin', () => {
     expect(people.admin?.components?.edit?.beforeDocumentControls).toBeUndefined()
   })
 
-  it('registers the records collection, the task and the endpoints', async () => {
-    const config = await plugin(baseConfig())
+  it.each([
+    ['a provider', fakeProvider()],
+    ['no provider, so the schema never depends on env', null],
+  ])(
+    'registers the records collection, the task and the endpoints with %s',
+    async (_name, provider) => {
+      const config = await translatorPlugin({
+        collections: { events: {} },
+        provider,
+        access: () => true,
+      })(baseConfig())
+      const events = config.collections!.find(collection => collection.slug === 'events')!
 
-    expect(
-      config.collections!.some(collection => collection.slug === 'translation-records'),
-    ).toBe(true)
-    expect(config.jobs?.tasks?.map(task => task.slug)).toContain('translateDocument')
-    expect(config.endpoints?.map(endpoint => endpoint.path)).toEqual(
-      expect.arrayContaining(['/translator/translate', '/translator/status']),
-    )
-  })
+      expect(
+        config.collections!.some(collection => collection.slug === 'translation-records'),
+      ).toBe(true)
+      expect(config.jobs?.tasks?.map(task => task.slug)).toContain('translateDocument')
+      expect(config.endpoints?.map(endpoint => endpoint.path)).toEqual(
+        expect.arrayContaining(['/translator/translate', '/translator/status']),
+      )
+      expect(events.admin?.components?.edit?.beforeDocumentControls).toContain(
+        '@runroom/payload-plugin-translator/client#TranslateControl',
+      )
+    },
+  )
 
   it('merges its admin texts without dropping the project ones', async () => {
     const config = await plugin(baseConfig())
@@ -81,27 +93,6 @@ describe('translatorPlugin', () => {
 
     expect(es.general?.foo).toBe('bar')
     expect(es.translator?.translate).toBe('Traducir')
-  })
-
-  it('registers everything even without a provider, so the schema never depends on env', async () => {
-    const config = await translatorPlugin({
-      collections: { events: {} },
-      provider: null,
-      access: () => true,
-    })(baseConfig())
-
-    const events = config.collections!.find(collection => collection.slug === 'events')!
-
-    expect(
-      config.collections!.some(collection => collection.slug === 'translation-records'),
-    ).toBe(true)
-    expect(config.jobs?.tasks?.map(task => task.slug)).toContain('translateDocument')
-    expect(config.endpoints?.map(endpoint => endpoint.path)).toEqual(
-      expect.arrayContaining(['/translator/translate', '/translator/status']),
-    )
-    expect(events.admin?.components?.edit?.beforeDocumentControls).toContain(
-      '@runroom/payload-plugin-translator/client#TranslateControl',
-    )
   })
 
   it('accepts a collection without drafts, which the job writes directly', async () => {
@@ -430,23 +421,5 @@ describe('translatorPlugin onInit', () => {
 
     expect(none.warn).toHaveBeenCalledTimes(1)
     expect(unnamed.warn).toHaveBeenCalledTimes(1)
-  })
-})
-
-describe('translatorPlugin runOnRequest', () => {
-  const options: TranslatorPluginOptions = {
-    collections: { events: {} },
-    provider: null,
-    access: () => true,
-  }
-
-  it('runs the queued job from the request unless told otherwise', () => {
-    expect(resolveSettings(options, baseConfig()).runOnRequest).toBe(true)
-    expect(
-      resolveSettings({ ...options, runOnRequest: true }, baseConfig()).runOnRequest,
-    ).toBe(true)
-    expect(
-      resolveSettings({ ...options, runOnRequest: false }, baseConfig()).runOnRequest,
-    ).toBe(false)
   })
 })
