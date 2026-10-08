@@ -22,16 +22,23 @@ type Doc = Record<string, unknown>
 // With `transactionID` the call joins that Payload transaction instead of running alone.
 type Transactional = { transactionID?: TransactionID }
 
-type ReadArgs = Transactional & { locale: string; withFallback: boolean }
+// `asStored` reads what Payload stored, without the requester's access rules. It is for
+// the target side only: those reads are compared with what was planned or sent, and never
+// reach the requester or the provider.
+type ReadArgs = Transactional & {
+  locale: string
+  withFallback: boolean
+  asStored?: boolean
+}
 
 export type Entity = {
   fields: Field[]
   writesLive: boolean
+  // As the requester unless `asStored`, so a field they may update but not read in the
+  // target still shows what it holds.
   read: (args: ReadArgs) => Promise<Doc>
   find: (args: { locale: string }) => Promise<Doc | null>
-  // Returns the document as saved. A `beforeChange` hook (a `formatSlug`) can rewrite what
-  // was sent, and the fingerprints must be taken from the saved value.
-  write: (args: Transactional & { locale: string; data: Doc }) => Promise<Doc>
+  write: (args: Transactional & { locale: string; data: Doc }) => Promise<void>
   // Date of the latest published version; `null` without drafts or if never published.
   lastPublishedAt: () => Promise<string | null>
 }
@@ -94,12 +101,12 @@ const accessOption = (
   user ? { overrideAccess: false, user } : {}
 
 const readOptions = (
-  { locale, withFallback, transactionID }: ReadArgs,
+  { locale, withFallback, transactionID, asStored }: ReadArgs,
   user: TypedUser | undefined,
 ): Doc => ({
   locale,
   ...fallbackOption(withFallback),
-  ...accessOption(user),
+  ...accessOption(asStored ? undefined : user),
   ...transactionOption(transactionID),
 })
 
@@ -135,8 +142,8 @@ const collectionEntity = (
         throw error
       }
     },
-    write: async ({ locale, data, transactionID }) =>
-      (await payload.update({
+    write: async ({ locale, data, transactionID }) => {
+      await payload.update({
         collection: collectionSlug as never,
         id: docId,
         locale: locale as never,
@@ -146,7 +153,8 @@ const collectionEntity = (
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      })) as unknown as Doc,
+      })
+    },
     lastPublishedAt: async () =>
       drafts
         ? updatedAtOf(
@@ -183,8 +191,8 @@ const globalEntity = (
     writesLive: !drafts,
     read: args => findGlobal(readOptions(args, user)),
     find: ({ locale }) => findGlobal({ locale }),
-    write: async ({ locale, data, transactionID }) =>
-      (await payload.updateGlobal({
+    write: async ({ locale, data, transactionID }) => {
+      await payload.updateGlobal({
         slug: slug as never,
         locale: locale as never,
         ...draftOption(drafts),
@@ -193,7 +201,8 @@ const globalEntity = (
         depth: 0,
         data: data as never,
         context: { ...TRANSLATOR_WRITE_CONTEXT },
-      } as never)) as unknown as Doc,
+      } as never)
+    },
     lastPublishedAt: async () =>
       drafts
         ? updatedAtOf(

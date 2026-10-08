@@ -326,6 +326,54 @@ describe('translating as the requester under access rules', () => {
     expect((await readDraft(id, 'es')).summary).toBe('[es] In short')
   })
 
+  // The target is compared as stored, not as the requester may read it back: hidden in
+  // `es`, `summary` would otherwise look refused, pending and in need of a new translation.
+  it('does not translate again a field hidden in the target once it holds our translation', async () => {
+    const id = await createDoc({ title: 'Recap', summary: 'In short' })
+    const body = { collection: 'guarded', id, sourceLocale: 'en', targetLocales: ['es'] }
+
+    await translateAndWait(harness, body)
+    const record = await findRecord(harness, { docId: id, targetLocale: 'es' })
+    expect(record).toMatchObject({ status: 'done', error: null, kept: [] })
+    expect(record?.fields?.summary).toEqual({
+      source: expect.any(String),
+      output: expect.any(String),
+      sourceLocale: 'en',
+    })
+    const reply = await status(harness, { collection: 'guarded', id })
+    expect(localeStatus(reply, 'es')).toMatchObject({
+      state: 'done',
+      stale: false,
+      changed: 0,
+      missing: 0,
+      kept: 0,
+    })
+    expect(JSON.stringify(reply.body)).not.toContain('[es] In short')
+
+    sent.mockClear()
+    await translateAndWait(harness, body)
+    expect(sentTexts()).toEqual([])
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      status: 'done',
+      kept: [],
+    })
+
+    // A new source text replaces our earlier translation, not taken for a hand edit.
+    await harness.payload.update({
+      collection: 'guarded' as never,
+      id,
+      locale: 'en',
+      draft: true,
+      data: { summary: 'In brief' },
+    } as never)
+    await translateAndWait(harness, body)
+    expect(sentTexts()).toEqual(['In brief'])
+    expect((await readDraft(id, 'es')).summary).toBe('[es] In brief')
+    expect(await findRecord(harness, { docId: id, targetLocale: 'es' })).toMatchObject({
+      kept: [],
+    })
+  })
+
   // The schema-level permissions allow `links.label`; only the read as the requester hides
   // the label of an internal row.
   it('never sends the text of a global row the requester may not read', async () => {

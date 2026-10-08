@@ -126,7 +126,11 @@ const verifyWrite = async ({
 }): Promise<void> => {
   if (Object.keys(hashes).length === 0) return
   const { payload, input, entity, targetLocale } = run
-  const saved = await entity.read({ locale: targetLocale, withFallback: false })
+  const saved = await entity.read({
+    locale: targetLocale,
+    withFallback: false,
+    asStored: true,
+  })
   const values = translatablesOf(run, saved)
   // A field only counts as verified if it holds our output. An empty field, or one with
   // other text, was overwritten between the write and this read.
@@ -194,6 +198,7 @@ const writeTranslation = async ({
     locale: targetLocale,
     withFallback: false,
     transactionID,
+    asStored: true,
   })
   const before = new Map(
     translatablesOf(run, targetDoc).map(value => [value.path, fingerprintOf(value)]),
@@ -205,10 +210,18 @@ const writeTranslation = async ({
     sourceLocale: run.sourceLocale,
   })
   if (left.length === 0) return { writes: left, written: null, before }
-  const written = await entity.write({
+  await entity.write({
     locale: targetLocale,
     data: buildUpdateData({ targetDoc, writes: left }),
     transactionID,
+  })
+  // The fingerprints come from the saved value: a `beforeChange` hook (a `formatSlug`) can
+  // rewrite what was sent.
+  const written = await entity.read({
+    locale: targetLocale,
+    withFallback: false,
+    transactionID,
+    asStored: true,
   })
   return { writes: left, written, before }
 }
@@ -313,7 +326,7 @@ export const execute = async (
   const { entity, input, sourceLocale, targetLocale } = run
   const [sourceDoc, targetDoc] = await Promise.all([
     entity.read({ locale: sourceLocale, withFallback: true }),
-    entity.read({ locale: targetLocale, withFallback: false }),
+    entity.read({ locale: targetLocale, withFallback: false, asStored: true }),
   ])
   const plan = planTranslation({
     source: translatablesOf(run, sourceDoc),

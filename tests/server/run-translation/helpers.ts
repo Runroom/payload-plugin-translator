@@ -124,6 +124,26 @@ export const fakePayload = ({
   return { payload, update, records, unlock }
 }
 
+// A concurrent save that reverts `locale` once the job has read back its own write: the
+// read-back still finds the write, the verification re-read after it finds `reverted`.
+export const revertedAfterReadBack = <A extends { locale?: string }>(
+  read: (args: A) => Promise<unknown>,
+  {
+    locale,
+    written,
+    reverted,
+  }: { locale: string; written: () => boolean; reverted: unknown },
+): ((args: A) => Promise<unknown>) => {
+  let readBack = false
+  return async args => {
+    if (args.locale !== locale || !written() || !readBack) {
+      if (args.locale === locale && written()) readBack = true
+      return read(args)
+    }
+    return reverted
+  }
+}
+
 export const settings: TranslatorSettings = {
   collections: { events: { locales: ['es', 'ca', 'en'] } },
   globals: { footer: { locales: ['es', 'ca'] } },
