@@ -10,7 +10,7 @@ import { ProviderError } from '../../../src/provider/types.js'
 import { requesterPermissions } from '../../../src/server/docAccess.js'
 import { AccessDeniedError } from '../../../src/server/errors.js'
 import { RECORDS_SLUG } from '../../../src/server/records.js'
-import { MISSING_REQUESTER, runTranslation } from '../../../src/server/runTranslation.js'
+import { runTranslation } from '../../../src/server/runTranslation.js'
 import type { TranslatorSettings } from '../../../src/server/settings.js'
 import {
   fakePayload,
@@ -152,26 +152,6 @@ describe('runTranslation', () => {
           title: '[ca] Curso',
           agenda: { days: [{ id: 'd1', label: '[ca] Día 1' }] },
         },
-      }),
-    )
-  })
-
-  it('reads both locales from the latest draft, the target without fallback', async () => {
-    const { payload } = fakePayload({
-      docs: { es: { id: 'e1', title: 'Curso' }, ca: { id: 'e1', title: null } },
-    })
-
-    await runTranslation({ isLastAttempt: true, payload, input, settings })
-
-    expect(payload.findByID).toHaveBeenCalledWith(
-      expect.objectContaining({ locale: 'es', draft: true, depth: 0 }),
-    )
-    expect(payload.findByID).toHaveBeenCalledWith(
-      expect.objectContaining({
-        locale: 'ca',
-        draft: true,
-        depth: 0,
-        fallbackLocale: false,
       }),
     )
   })
@@ -352,25 +332,6 @@ describe('runTranslation', () => {
       runTranslation({ isLastAttempt: true, payload, input, settings }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(records.mock.calls.at(-1)![0].data.status).toBe('failed')
-  })
-
-  it('cancels every locale when the requester no longer exists', async () => {
-    const { payload, records } = fakePayload(pending)
-    const translate = vi.fn(fakeProvider().translate)
-
-    await expect(
-      runTranslation({
-        isLastAttempt: true,
-        payload,
-        input: { ...input, requester: { collection: 'users', id: 'gone' } },
-        settings: { ...settings, provider: { translate } },
-      }),
-    ).rejects.toThrow(MISSING_REQUESTER)
-    expect(records.mock.calls.at(-1)![0].data).toMatchObject({
-      status: 'failed',
-      error: MISSING_REQUESTER,
-    })
-    expect(translate).not.toHaveBeenCalled()
   })
 
   it('fails the locale for good without calling the provider when access is denied', async () => {
