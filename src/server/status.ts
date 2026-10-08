@@ -128,7 +128,8 @@ type Doc = Record<string, unknown>
 
 // The documents the comparisons need, one per locale the requester may read: sources
 // with fallback, targets without so a field emptied by hand counts as empty. A source
-// shared by several locales is read once.
+// shared by several locales is read once. Targets are read as stored: only counts come
+// out of them, so a field the requester may update but not read there still counts.
 const readDocs = async ({
   entity,
   access,
@@ -143,6 +144,7 @@ const readDocs = async ({
   const read = async (
     locales: string[],
     withFallback: boolean,
+    asStored: boolean,
   ): Promise<Map<string, Doc>> =>
     new Map(
       await Promise.all(
@@ -150,13 +152,13 @@ const readDocs = async ({
           .filter(locale => canRead(access, locale))
           .map(
             async locale =>
-              [locale, await entity.read({ locale, withFallback })] as const,
+              [locale, await entity.read({ locale, withFallback, asStored })] as const,
           ),
       ),
     )
   const [sources, targets] = await Promise.all([
-    read(sourceLocales, true),
-    read(targetLocales, false),
+    read(sourceLocales, true, false),
+    read(targetLocales, false, true),
   ])
   return { sources, targets }
 }

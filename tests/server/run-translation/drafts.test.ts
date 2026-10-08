@@ -13,6 +13,7 @@ import {
   LOCK_TOKEN,
   refreshOf,
   requester,
+  revertedAfterReadBack,
   userOf,
   withLock,
 } from './helpers.js'
@@ -169,13 +170,16 @@ describe('runTranslation for a global', () => {
   })
 
   it('retries when the re-read global does not hold what was written', async () => {
-    const { payload, findGlobal, records } = globalPayload({
+    const { payload, findGlobal, records, updateGlobal } = globalPayload({
       state: pendingGlobal(),
       versions: false,
     })
-    const original = findGlobal.getMockImplementation()!
-    findGlobal.mockImplementation(async args =>
-      args.locale === 'ca' ? { title: null } : original(args),
+    findGlobal.mockImplementation(
+      revertedAfterReadBack(findGlobal.getMockImplementation()!, {
+        locale: 'ca',
+        written: () => updateGlobal.mock.calls.length > 0,
+        reverted: { title: null },
+      }),
     )
 
     const error = await runTranslation({

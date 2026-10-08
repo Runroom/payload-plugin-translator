@@ -179,24 +179,27 @@ the plugin's `access` and the document's own. Only the plugin, through the Local
 reads and writes it.
 
 The job **runs as the requester**: it stores who asked, loads that user again on every
-attempt and reads and writes the document through the Local API with
-`overrideAccess: false` and that user. The checks above are repeated when the job runs,
-per locale (read on the source locale, update on each target locale), so access rules that
-depend on `req.locale`, on the user or on the document are honoured as they stand at that
-moment, not as they stood when the job was queued. A user who loses access, or is deleted,
-before the job runs gets the locale marked `failed` with "Access denied" (or "The user who
-requested the translation no longer exists") and nothing is sent to the provider. Field
-access is applied by Payload on the real data: a field the requester may not read in the
-source locale is never sent to the provider, and a field they may not update in the target
-locale (a row-level rule on `siblingData` or `blockData`, for instance) keeps its value
-and is listed as kept, without failing the run; its fingerprints stay as they were, so if
-it still holds the translator's earlier output, the status reports it as stale and the
-next run tries again. Fields missing either permission at the schema level are not counted
-in status either, and their previous fingerprints are kept. `GET /status` reads each
-locale as the requester and checks read access per locale: a locale they cannot read is
-reported without comparison data (`stale: false`, `changed: 0`, `missing: 0`), and the
-document only answers 404 when none of its locales is readable. Every write it makes to
-your documents carries its own request `context` (`TRANSLATOR_WRITE_CONTEXT`); use
+attempt and reads the source and writes the target through the Local API with
+`overrideAccess: false` and that user. The target is compared as Payload stored it, so a
+field the requester may update but not read there still counts as translated; what is read
+that way only feeds the comparisons and is never sent to the provider or returned to the
+requester. The checks above are repeated when the job runs, per locale (read on the source
+locale, update on each target locale), so access rules that depend on `req.locale`, on the
+user or on the document are honoured as they stand at that moment, not as they stood when
+the job was queued. A user who loses access, or is deleted, before the job runs gets the
+locale marked `failed` with "Access denied" (or "The user who requested the translation no
+longer exists") and nothing is sent to the provider. Field access is applied by Payload on
+the real data: a field the requester may not read in the source locale is never sent to
+the provider, and a field they may not update in the target locale (a row-level rule on
+`siblingData` or `blockData`, for instance) keeps its value and is listed as kept, without
+failing the run; its fingerprints stay as they were, so if it still holds the translator's
+earlier output, the status reports it as stale and the next run tries again. Fields
+missing either permission at the schema level are not counted in status either, and their
+previous fingerprints are kept. `GET /status` reads each source locale as the requester,
+compares each target as stored, and checks read access per locale: a locale they cannot
+read is reported without comparison data (`stale: false`, `changed: 0`, `missing: 0`), and
+the document only answers 404 when none of its locales is readable. Every write it makes
+to your documents carries its own request `context` (`TRANSLATOR_WRITE_CONTEXT`); use
 `isTranslatorWrite(context)` in your hooks to tell its writes apart, for example to skip
 revalidating the public site on a draft write, or to keep a sync from claiming a field the
 translator wrote.

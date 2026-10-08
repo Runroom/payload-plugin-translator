@@ -50,7 +50,9 @@ describe('GET /translator/status', () => {
     expect(body.locales[1]).toMatchObject({ stale: false, changed: 0, missing: 0 })
   })
 
-  it('reads the locales it compares as the requester, checking read access in each', async () => {
+  // The target only feeds counts, so it is read as stored: a field the requester may
+  // update there but not read still counts as translated.
+  it('reads the source as the requester and the target as stored, checking read access in each', async () => {
     const seen: string[] = []
     vi.mocked(docAccessOperation).mockImplementation(async ({ req }) => {
       seen.push((req as PayloadRequest).locale!)
@@ -68,9 +70,9 @@ describe('GET /translator/status', () => {
     expect(findByID).toHaveBeenCalledWith(
       expect.objectContaining({ locale: 'es', overrideAccess: false, user: requester }),
     )
-    expect(findByID).toHaveBeenCalledWith(
-      expect.objectContaining({ locale: 'ca', overrideAccess: false, user: requester }),
-    )
+    const target = findByID.mock.calls.find(([args]) => args.locale === 'ca')![0]
+    expect(target).not.toHaveProperty('user')
+    expect(target).not.toHaveProperty('overrideAccess')
   })
 
   it('reports a locale the requester cannot read without comparison data', async () => {

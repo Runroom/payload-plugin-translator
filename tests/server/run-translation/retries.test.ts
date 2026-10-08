@@ -16,6 +16,7 @@ import {
   bothLocales,
   allTargets,
   failingFor,
+  revertedAfterReadBack,
   statefulPayload,
 } from './helpers.js'
 import type { Docs } from './helpers.js'
@@ -89,10 +90,13 @@ describe('runTranslation retries and safety checks', () => {
   })
 
   it('retries when a concurrent save wiped the translation it just wrote', async () => {
-    const { payload, records } = fakePayload({ docs: { ...bothLocales } })
-    const original = vi.mocked(payload.findByID)
-    payload.findByID = vi.fn(async (args: { locale: string }) =>
-      args.locale === 'ca' ? { id: 'e1', title: null } : original(args as never),
+    const { payload, records, update } = fakePayload({ docs: { ...bothLocales } })
+    payload.findByID = vi.fn(
+      revertedAfterReadBack(vi.mocked(payload.findByID) as never, {
+        locale: 'ca',
+        written: () => update.mock.calls.length > 0,
+        reverted: { id: 'e1', title: null },
+      }),
     ) as never
 
     const error = await runTranslation({
@@ -165,10 +169,13 @@ describe('runTranslation retries and safety checks', () => {
   })
 
   it('says it will retry only when another attempt is left', async () => {
-    const { payload, records } = fakePayload({ docs: { ...bothLocales } })
-    const original = vi.mocked(payload.findByID)
-    payload.findByID = vi.fn(async (args: { locale: string }) =>
-      args.locale === 'ca' ? { id: 'e1', title: null } : original(args as never),
+    const { payload, records, update } = fakePayload({ docs: { ...bothLocales } })
+    payload.findByID = vi.fn(
+      revertedAfterReadBack(vi.mocked(payload.findByID) as never, {
+        locale: 'ca',
+        written: () => update.mock.calls.length > 0,
+        reverted: { id: 'e1', title: null },
+      }),
     ) as never
 
     await expect(
@@ -261,14 +268,21 @@ describe('runTranslation against a target that changes while translating', () =>
     const write = writes.getMockImplementation()!
     let raced = false
     writes.mockImplementation(async args => {
-      if (args.collection !== 'events' || raced) return write(args)
-      raced = true
-      const written = await write(args)
-      // A save in another locale reverts the field once our write has returned, so the
-      // verification re-read no longer finds it.
-      docs.ca = { ...docs.ca, subtitle: null }
-      return written
+      if (args.collection === 'events') raced = true
+      return write(args)
     })
+    // A save in another locale reverts the field once the job has read back its write, so
+    // the verification re-read no longer finds it. Only the first run is raced.
+    const read = vi.mocked(payload.findByID).getMockImplementation()!
+    let readBack = false
+    payload.findByID = vi.fn(async (args: { locale: string }) => {
+      const doc = await read(args as never)
+      if (raced && !readBack && args.locale === 'ca') {
+        readBack = true
+        docs.ca = { ...docs.ca, subtitle: null }
+      }
+      return doc
+    }) as never
 
     await expect(
       runTranslation({ isLastAttempt: false, payload, input, settings }),
