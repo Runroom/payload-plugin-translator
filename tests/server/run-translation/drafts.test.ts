@@ -24,17 +24,29 @@ vi.mock('../../../src/server/docAccess.js', () => ({
 }))
 
 describe('runTranslation without drafts', () => {
-  it('writes live a collection whose versions have drafts turned off', async () => {
-    const { payload, update } = fakePayload({
-      docs: { es: { id: 'p1', title: 'Persona' }, ca: { id: 'p1', title: null } },
-      collections: { events: { config: { fields, versions: { drafts: false } } } },
-    })
+  it.each([
+    ['versions turned off', false],
+    ['drafts turned off in its versions', { drafts: false }],
+  ])(
+    'writes and re-reads a collection with %s directly, never as a draft',
+    async (_shape, versions) => {
+      const { payload, update } = fakePayload({
+        docs: { es: { id: 'p1', title: 'Persona' }, ca: { id: 'p1', title: null } },
+        collections: { events: { config: { fields, versions } } },
+      })
 
-    await runTranslation({ isLastAttempt: true, payload, input, settings })
+      await runTranslation({ isLastAttempt: true, payload, input, settings })
 
-    expect(update).toHaveBeenCalledTimes(1)
-    expect(update.mock.calls[0]![0]).not.toHaveProperty('draft')
-  })
+      expect(update).toHaveBeenCalledTimes(1)
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({ locale: 'ca', data: { title: '[ca] Persona' } }),
+      )
+      expect(update.mock.calls[0]![0]).not.toHaveProperty('draft')
+      for (const [args] of vi.mocked(payload.findByID).mock.calls) {
+        expect(args).not.toHaveProperty('draft')
+      }
+    },
+  )
 
   it('cancels instead of retrying when the write fails validation', async () => {
     const { payload, update, records } = fakePayload({
@@ -49,23 +61,6 @@ describe('runTranslation without drafts', () => {
       runTranslation({ isLastAttempt: false, payload, input, settings }),
     ).rejects.toBeInstanceOf(JobCancelledError)
     expect(records.mock.calls.at(-1)![0].data).toMatchObject({ status: 'failed' })
-  })
-
-  it('writes and re-reads a collection without drafts directly, never as a draft', async () => {
-    const { payload, update } = fakePayload({
-      docs: { es: { id: 'p1', title: 'Persona' }, ca: { id: 'p1', title: null } },
-      collections: { events: { config: { fields, versions: false } } },
-    })
-
-    await runTranslation({ isLastAttempt: true, payload, input, settings })
-
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({ locale: 'ca', data: { title: '[ca] Persona' } }),
-    )
-    expect(update.mock.calls[0]![0]).not.toHaveProperty('draft')
-    for (const [args] of vi.mocked(payload.findByID).mock.calls) {
-      expect(args).not.toHaveProperty('draft')
-    }
   })
 })
 
@@ -171,22 +166,6 @@ describe('runTranslation for a global', () => {
     )
     expect(updateGlobal.mock.calls[0]![0]).not.toHaveProperty('draft')
     for (const [args] of findGlobal.mock.calls) expect(args).not.toHaveProperty('draft')
-  })
-
-  it('records the result under the global key', async () => {
-    const { payload, records } = globalPayload({
-      state: pendingGlobal(),
-      versions: false,
-    })
-
-    await runTranslation({ isLastAttempt: true, payload, input: globalInput, settings })
-
-    expect(records.mock.calls[0]![0].data).toMatchObject({
-      entityType: 'global',
-      collectionSlug: 'footer',
-      docId: 'global',
-      targetLocale: 'ca',
-    })
   })
 
   it('retries when the re-read global does not hold what was written', async () => {

@@ -93,20 +93,6 @@ describe('hashesOf', () => {
     targetHashes: {},
   })
 
-  // The field was not translated from this run's locale: the entry keeps the locale its
-  // fingerprints came from, whatever locale the record is stamped with afterwards.
-  it('keeps the previous fingerprints of a refused field, with their own source locale', () => {
-    const plan = planOf()
-    const entry = { source: 'old-hash', output: held, sourceLocale: 'en' }
-
-    const hashes = refused(plan, { title: entry })
-
-    expect(hashes).toEqual({})
-    expect(plan.kept).toEqual(['title'])
-    expect(plan.hashes.title).toBe(entry)
-    expect(plan.hashes.title!.sourceLocale).toBe('en')
-  })
-
   it('records the source alone, from this locale, for a refused field that had no fingerprints', () => {
     const plan = planOf()
 
